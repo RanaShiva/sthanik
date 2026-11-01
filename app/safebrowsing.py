@@ -12,15 +12,18 @@ from __future__ import annotations
 import dataclasses
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 
 import outbound
+import sources
 
 # Held in memory only. Writing the switch to a file would itself be a trace, so every start of the app begins with it off.
 _safe = True
 _cache: dict[tuple, tuple[float, list[dict]]] = {}  # (kind, query, level) -> (when, rows); in memory only
+_stale: dict[tuple, tuple[float, list[dict]]] = {}  # the last good answer to each search, kept a day to show when every source fails
 _CACHE_SECONDS = 300
+_STALE_SECONDS = 86400
 
 
 def is_safe() -> bool:
@@ -31,6 +34,7 @@ def set_safe(safe: bool):
     global _safe
     _safe = bool(safe)
     _cache.clear()  # results for one mode must never be served in the other
+    _stale.clear()
 
 
 def search_level() -> str:
@@ -148,63 +152,125 @@ def _url_key(url: str) -> tuple[str, str]:
     return p.netloc.lower().removeprefix("www."), p.path.rstrip("/")
 
 
-def _merge(lists: list[list[dict]], n: int) -> list[dict]:
-    """Reciprocal-rank fusion: a page both engines return outranks one only a single engine returns; duplicates collapse to one entry."""
+def _merge(lists: list[list[dict]], n: int, weights: list[float] | None = None) -> list[dict]:
+    """Reciprocal-rank fusion: a page several sources return outranks one only a single source returns; duplicates collapse to one entry.
+    `weights` says how much each list's ranking counts (the general engines 1.0, a supplementary source less)."""
     score: dict[tuple[str, str], float] = {}
     first: dict[tuple[str, str], dict] = {}
-    for rows in lists:
+    for i, rows in enumerate(lists):
+        w = weights[i] if weights else 1.0
         for rank, r in enumerate(rows):
             k = _url_key(r.get("href", ""))
-            score[k] = score.get(k, 0.0) + 1.0 / (60 + rank)
+            score[k] = score.get(k, 0.0) + w / (60 + rank)
             if k not in first or len(r.get("body", "")) > len(first[k].get("body", "")):
                 first[k] = r
     return [first[k] for k in sorted(score, key=score.__getitem__, reverse=True)][:n]
 
 
+_GRACE = 2.0  # seconds the others get once a general engine has answered on topic
+_GENERAL = ("yahoo", "bing", "searxng")  # sources that search the whole web; the others add to them or step in when they fail
+
+
+def _why(e: Exception) -> str:
+    return f"{type(e).__name__}: {e}"[:120]
+
+
 def _search_text(query: str, level: str, n: int) -> list[dict]:
-    """Yahoo and Bing are asked at the same time and their answers merged. Each is checked on its own: an engine that answers with unrelated
-    pages (Bing does, for about a third of queries, whatever the market setting) is left out and the other carries the result. Further rounds
-    (other market settings, a quoted phrase, a simplified query) only run if neither engine was on topic."""
-    adult_q = level == "off" and bool(_ADULT_QUERY.search(query))
+    """Yahoo and Bing are asked at the same time, with Wikipedia (and Stack Overflow for a programming question, and the user's own SearXNG if
+    they set one), and the answers are merged. Each is checked on its own: an engine that answers with unrelated pages (Bing does, for about a
+    third of queries, whatever the market setting) is left out and the others carry the result. A source that keeps failing is left alone for a
+    while (see sources.Health). Further rounds (other market settings, a quoted phrase, a simplified query, Marginalia) only run if no general
+    engine was on topic."""
+    strict = level == "strict"
+    theme = bool(_ADULT_QUERY.search(query))
+    adult_q = not strict and theme
     core = " ".join(w for w in query.split() if w.lower() not in _STOP | _FILLER) or query
     rest = " ".join(w for w in query.split() if w.lower() in _FILLER)
     quoted = f'"{core}"' + (f" {rest}" if rest else "")  # a quoted phrase makes Bing match every word instead of latching onto one
-    rounds = [[("yahoo", query, ""), ("bing", query, "")], [("bing", query, "en-us"), ("yahoo", core, "")], [("bing", query, "en-in")], [("bing", quoted, ""), ("bing", core, "en-us")]]
+    # An adult-themed query never goes to a source that cannot filter it: in strict mode only Bing and Yahoo, which can, are asked.
+    more = sources.extras_enabled() and not (strict and theme)
+    extras = (["wikipedia"] + (["stackexchange"] if sources.looks_technical(query) else []) if more else []) + (["searxng"] if sources.searxng_address() and not (strict and theme) else [])
+    rescue = ["marginalia"] if more else []
+    rounds = [[("yahoo", query, ""), ("bing", query, "")] + [(x, query, "") for x in extras],
+              [("bing", query, "en-us"), ("yahoo", core, "")] + [(x, core, "") for x in rescue],
+              [("bing", query, "en-in")], [("bing", quoted, ""), ("bing", core, "en-us")]]
+    # an engine that has been answering with unrelated pages waits for the second round
+    late = [j for j in rounds[0] if j[0] in ("yahoo", "bing") and sources.HEALTH.demoted(j[0])]
+    if late and len(late) < sum(1 for j in rounds[0] if j[0] in ("yahoo", "bing")):
+        rounds[0] = [j for j in rounds[0] if j not in late]
+        rounds[1] = rounds[1] + late
 
     def run(job):
         engine, q, market = job
+        t = time.time()
         try:
-            return (_yahoo(q, level) if engine == "yahoo" else _bing("text", q, level, {}, market)), None
+            if engine == "yahoo":
+                rows = _yahoo(q, level)
+            elif engine == "bing":
+                rows = _bing("text", q, level, {}, market)
+            elif engine == "wikipedia":
+                rows = sources.wikipedia(q, 4)
+            elif engine == "stackexchange":
+                rows = sources.stackexchange(q, 4)
+            elif engine == "marginalia":
+                rows = sources.marginalia(q, 6)
+            else:
+                rows = sources.searxng(q, 8, strict)
         except Exception as e:  # noqa: BLE001 - ddgs and httpx each have their own exception hierarchy
-            return [], e
+            sources.HEALTH.failure(engine, _why(e))
+            return [], e, engine, time.time() - t
+        if strict and engine not in ("yahoo", "bing"):
+            rows = [r for r in rows if not sources.snippet_is_adult(r, _ADULT_SITE)]
+        return rows, None, engine, time.time() - t
 
     def on_topic(rows):
         top = rows[:5]
         return bool(top) and (_on_topic(top, query) or (adult_q and _adult_rows(top) * 2 >= len(top)))
 
-    good: list[list[dict]] = []
+    good: list[tuple[str, list[dict]]] = []
     best, best_score = [], (0, 0, 0)
     errors: list[Exception] = []
     attempted = 0
+    # a source that keeps failing sits out, unless that would leave nothing to ask: then everything is tried, so recovery is noticed at once
+    every = {j[0] for r in rounds for j in r}
+    sits_out = (lambda name: not sources.HEALTH.allowed(name)) if any(sources.HEALTH.allowed(n) for n in every) else (lambda name: False)
     for i, jobs in enumerate(rounds):
-        jobs = [j for j in dict.fromkeys(jobs)]
+        enough = sum(len(r) for _, r in good) >= 3  # the backup index is only for when little else came back
+        jobs = [j for j in dict.fromkeys(jobs) if not sits_out(j[0]) and not (enough and j[0] == "marginalia")]
+        if not jobs:
+            continue
         if i:
             time.sleep(0.3)
-        with ThreadPoolExecutor(len(jobs)) as pool:
-            results = list(pool.map(run, jobs))
-        for rows, err in results:
-            attempted += 1
-            if err:
-                errors.append(err)
-            elif on_topic(rows):
-                good.append(rows)
-            elif rows:
-                ok, covered, _need = _coverage(rows[:5], query)
-                score = (covered, ok, _adult_rows(rows[:5]) if adult_q else 0)
-                if score > best_score:
-                    best, best_score = rows, score
-        if good:
-            return _merge(good, n)
+        pool = ThreadPoolExecutor(len(jobs))
+        pending = {pool.submit(run, j) for j in jobs}
+        cutoff = None
+        while pending:
+            done, pending = wait(pending, timeout=None if cutoff is None else max(0.0, cutoff - time.time()), return_when=FIRST_COMPLETED)
+            if not done:
+                break  # a good answer is in and the rest have had their say: a slow source must not hold the search up
+            for fut in done:
+                rows, err, engine, took = fut.result()
+                attempted += 1
+                if err:
+                    errors.append(err)
+                elif on_topic(rows):
+                    sources.HEALTH.success(engine, took)
+                    good.append((engine, rows))
+                elif rows:
+                    sources.HEALTH.junk(engine, took)
+                    ok, covered, _need = _coverage(rows[:5], query)
+                    score = (covered, ok, _adult_rows(rows[:5]) if adult_q else 0)
+                    if score > best_score:
+                        best, best_score = rows, score
+                else:
+                    sources.HEALTH.success(engine, took)  # it answered; there was just nothing to find
+            if cutoff is None and any(e in _GENERAL for e, _ in good):
+                cutoff = time.time() + _GRACE
+        pool.shutdown(wait=False, cancel_futures=True)
+        if any(e in _GENERAL for e, _ in good):
+            break
+    if good:
+        return _merge([r for _, r in good], n, [sources.WEIGHT.get(e, 1.0) for e, _ in good])
     if best and adult_q:
         return [{**r, "loose": True} for r in best[:n]]
     if errors and len(errors) == attempted:
@@ -227,17 +293,20 @@ def search(kind: str, query: str, n: int) -> list[dict]:
         if kind == "text":
             rows = _search_text(query, level, n)
             if rows:
-                _cache[key] = (time.time(), rows)
+                _cache[key] = _stale[key] = (time.time(), rows)
             return rows[:n]
         for attempt, (q, extra, market) in enumerate(_variants(kind, query)):
             if attempt:
                 time.sleep(0.3)
             rows = _bing(kind, q, level, extra, market)
             if rows:
-                _cache[key] = (time.time(), rows)
+                _cache[key] = _stale[key] = (time.time(), rows)
                 return rows[:n]
         return []
     except Exception:  # noqa: BLE001 - ddgs and httpx each have their own exception hierarchy
+        old = _stale.get(key)
+        if old and time.time() - old[0] < _STALE_SECONDS:  # every source failed: the last answer to this very search is better than an error
+            return [{**r, "stale": True} for r in old[1][:n]]
         if is_safe():
             raise
         from ddgs import DDGS

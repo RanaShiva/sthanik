@@ -180,6 +180,8 @@ def run_selftest(server_module, port: int) -> int:
                     check(f"import {module}", False, repr(e))
             r = c.get("/api/setup/status")
             check("setup status", r.status_code == 200, r.text[:200])
+            sh = c.get("/api/search/health")
+            check("search health is reported", sh.status_code == 200 and isinstance(sh.json().get("sources"), dict), sh.text[:200])
             found = c.get("/api/setup/detect")
             check("setup lists the engines and model files already on this computer", found.status_code == 200 and isinstance(found.json().get("engines"), list) and isinstance(found.json().get("files"), list), found.text[:200])
             # bad input must be refused with a clear 4xx, never a server error, and must never reach the file system

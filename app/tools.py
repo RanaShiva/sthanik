@@ -40,6 +40,7 @@ import images
 import memory
 import outbound
 import paths
+import readers
 import safebrowsing
 from skills import SkillError, SkillStore
 
@@ -49,7 +50,9 @@ TOOLS_CONFIG = CONFIG_DIR / "tools.json"
 MCP_CONFIG = CONFIG_DIR / "mcp.json"
 
 MAX_RESULT_CHARS = 12000
-UA = "Mozilla/5.0 (X11; Linux x86_64) LFM3-Lab/1.0"
+# Pages are asked for the way a browser asks: many sites answer a program-looking request with 403 and the same page to a browser.
+PAGE_HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5", "Accept-Language": "en-US,en;q=0.9"}
 
 
 class ToolError(Exception):
@@ -116,6 +119,8 @@ async def _web_search(args: dict) -> ToolResult:
         sources.append({"title": r.get("title", ""), "url": r.get("href", "")})
     if rows and rows[0].get("loose"):
         lines.insert(0, "Note: the search engine matched only part of this query, so these results are loosely related. Say so if they do not answer it.")
+    if rows and rows[0].get("stale"):
+        lines.insert(0, "Note: no search engine could be reached just now, so these are the results of an earlier identical search and may be out of date. Say so.")
     return ToolResult("\n".join(lines), sources)
 
 
@@ -149,33 +154,71 @@ async def _check_public_host(host: str):
             raise ToolError(f"Blocked: {host} resolves to a non-public address ({ip}).")
 
 
+def _refusal(status: int, host: str) -> str:
+    """What to tell the model when a page could not be read, ending with what to do next."""
+    if status in (401, 402, 403, 451):
+        return f"{host} does not let programs read this page (HTTP {status}). Use another of the search results instead."
+    if status == 429:
+        return f"{host} is limiting requests (HTTP 429). Use another of the search results instead."
+    if status in (404, 410):
+        return f"That page no longer exists at {host} (HTTP {status}). Use another of the search results instead."
+    return f"{host} could not give the page (HTTP {status}). Use another of the search results instead."
+
+
+async def _read_once(client: httpx.AsyncClient, url: str) -> tuple[int, httpx.Headers, bytes, str | None]:
+    async with client.stream("GET", url) as r:
+        if r.status_code >= 300:
+            return r.status_code, r.headers, b"", None
+        ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype and not (ctype.startswith("text/") or ctype in ("application/json", "application/xml", "application/xhtml+xml")):
+            raise ToolError(f"Unsupported content type: {ctype}")
+        body = b""
+        async for chunk in r.aiter_bytes():
+            body += chunk
+            if len(body) > 2_000_000:
+                break
+        return r.status_code, r.headers, body, r.encoding
+
+
 async def _fetch_url(args: dict) -> ToolResult:
     url = str(args.get("url", "")).strip()
     limit = max(500, min(int(args.get("max_chars") or 6000), 20000))
-    async with httpx.AsyncClient(follow_redirects=False, timeout=httpx.Timeout(15, connect=8), headers={"User-Agent": UA}, proxy=outbound.proxy()) as client:
-        for _ in range(6):
-            u = urlparse(url)
-            if u.scheme not in ("http", "https") or not u.hostname:
-                raise ToolError("Only http(s) URLs are supported.")
-            await _check_public_host(u.hostname)
-            async with client.stream("GET", url) as r:
-                if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
-                    url = urljoin(url, r.headers["location"])
+    first = urlparse(url)
+    if first.scheme not in ("http", "https") or not first.hostname:
+        raise ToolError("Only http(s) URLs are supported.")
+    try:  # Wikipedia and Stack Overflow answer programs through their own interfaces, not as web pages
+        special = await readers.read(url)
+    except Exception:  # noqa: BLE001 - whatever went wrong, the page itself is still worth a try
+        special = None
+    if special:
+        title, text = special
+        return ToolResult(f"{title}\n{url}\n\n" + _clip(text, limit), [{"title": title, "url": url}])
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=httpx.Timeout(15, connect=8), headers=PAGE_HEADERS, proxy=outbound.proxy()) as client:
+            for _ in range(6):
+                u = urlparse(url)
+                if u.scheme not in ("http", "https") or not u.hostname:
+                    raise ToolError("Only http(s) URLs are supported.")
+                await _check_public_host(u.hostname)
+                status, headers, body, encoding = await _read_once(client, url)
+                if status in (403, 429, 503):  # often a passing refusal: one more try, after the pause the site asks for
+                    wait = headers.get("retry-after", "")
+                    await asyncio.sleep(min(float(wait), 3.0) if wait.replace(".", "", 1).isdigit() else 0.8)
+                    status, headers, body, encoding = await _read_once(client, url)
+                if status in (301, 302, 303, 307, 308) and headers.get("location"):
+                    url = urljoin(url, headers["location"])
                     continue
-                if r.status_code >= 400:
-                    raise ToolError(f"HTTP {r.status_code} from {u.hostname}")
-                ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
-                if ctype and not (ctype.startswith("text/") or ctype in ("application/json", "application/xml", "application/xhtml+xml")):
-                    raise ToolError(f"Unsupported content type: {ctype}")
-                body = b""
-                async for chunk in r.aiter_bytes():
-                    body += chunk
-                    if len(body) > 2_000_000:
-                        break
-                encoding = r.encoding or "utf-8"
-            break
-        else:
-            raise ToolError("Too many redirects.")
+                if status >= 400:
+                    raise ToolError(_refusal(status, u.hostname))
+                break
+            else:
+                raise ToolError("Too many redirects.")
+    except httpx.TimeoutException as e:
+        raise ToolError(f"{urlparse(url).hostname} did not answer in time. Use another of the search results instead.") from e
+    except httpx.HTTPError as e:
+        raise ToolError(f"Could not read {urlparse(url).hostname} ({type(e).__name__}). Use another of the search results instead.") from e
+    ctype = headers.get("content-type", "").split(";")[0].strip().lower()
+    encoding = encoding or "utf-8"
     text = body.decode(encoding, errors="replace")
     title = ""
     if ctype in ("", "text/html", "application/xhtml+xml"):

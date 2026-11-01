@@ -40,6 +40,7 @@ import picturereview
 import private
 import registry
 import safebrowsing
+import sources
 import webimages
 from sysmetrics import cpu_stats
 from scheduler import ScheduleError, Scheduler, preview as preview_schedule
@@ -667,6 +668,12 @@ async def load_model(key: str):
         raise HTTPException(409, "A picture is being made and needs the whole GPU. Try again in a minute.")
     await llama.load(key)
     return llama.snapshot()
+
+
+@app.get("/api/search/health")
+async def search_health():
+    """Which search sources have been answering, and which are being left alone for a while (see sources.py)."""
+    return {"sources": sources.HEALTH.snapshot(), "searxng": bool(sources.searxng_address())}
 
 
 @app.get("/api/safe-browsing")
