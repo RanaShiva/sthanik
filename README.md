@@ -78,9 +78,13 @@ Download the file for your system from the [**Releases**](https://github.com/Ran
 |---|---|---|
 | Windows 10/11 (64-bit) | `Sthanik-<version>-windows-x64-setup.exe` (installer) or `…-windows-x64.zip` | Start it from the Start menu. A console window stays open while it runs; closing it quits. |
 | macOS (Apple silicon or Intel) | `Sthanik-<version>-macos-arm64.dmg` / `…-macos-x86_64.dmg` | Drag *Sthanik* to Applications, then **right-click → Open** the first time. |
-| Linux (x86-64 or arm64) | `Sthanik-<version>-linux-<arch>.tar.gz` | `tar xzf` it and run `./install.sh` (adds it to your applications menu, no root needed), or run `./sthanik/sthanik`. |
+| Linux (x86-64 or arm64) | `Sthanik-<version>-linux-<arch>.tar.gz` | `tar xzf` it and run `./install.sh` (adds it to your applications menu, no root needed), or run `./sthanik/sthanik`. Needs glibc 2.35 or newer (see below). |
 
 Sthanik opens in your browser at `http://127.0.0.1:7860` and shows **Setup** on first run. The Windows and macOS programs are **not code-signed**, so SmartScreen or Gatekeeper warns the first time you open them. Every release lists a SHA-256 for each file (`SHA256SUMS`). No browser handy? `sthanik --setup --parts text,vl` installs from the terminal.
+
+**Linux systems.** The package is tried in containers of Ubuntu 22.04 and 24.04, Debian 12, Fedora, Arch and openSUSE Tumbleweed: it starts, passes its self-test, installs and uninstalls. It needs glibc 2.35 or newer, because the llama.cpp engine it downloads does; older systems (Ubuntu 20.04, Debian 11, RHEL, Rocky and Alma 9 and earlier) are refused by `install.sh` with a message, and Alpine is not supported.
+
+**Uninstall.** Windows: *Settings → Apps → Sthanik* (the installer registers an uninstaller). macOS: drag *Sthanik* from Applications to the Trash. Linux: `sthanik-uninstall` (it stays installed, so you do not need the extracted folder). None of these delete your chats, documents and models; on Linux add `--purge` to delete them too, and elsewhere delete the data folder named in the [guide](docs/GUIDE.md).
 
 From source (needs Python 3; the downloads above need nothing installed): see the [guide](docs/GUIDE.md#run-from-source).
 
