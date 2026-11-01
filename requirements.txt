@@ -1,0 +1,20 @@
+# What Sthanik needs to run. Lower bounds are the versions it was developed and tested with.
+fastapi>=0.162
+uvicorn>=0.54
+httpx>=0.28
+websockets>=15
+python-multipart>=0.0.20
+psutil>=7
+pyyaml>=6
+beautifulsoup4>=4.13
+lxml>=5
+markdown-it-py>=3
+pillow>=11
+python-docx>=1.1
+python-pptx>=1.0
+openpyxl>=3.1
+xlsxwriter>=3.2
+ddgs>=9.10
+mcp>=1.20
+# cryptography 49+ ships no Intel-Mac wheel; compiling it there bundles a mismatched OpenSSL (found by the macOS Intel build's self-test)
+cryptography<49; sys_platform == "darwin" and platform_machine == "x86_64"

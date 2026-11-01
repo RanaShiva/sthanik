@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sthanik</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233ddc84'/%3E%3Cpath d='M7 21c3-9 6 4 9-5s4-3 6-3 3 0 4-1' stroke='%2304130a' stroke-width='2.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/katex/katex.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    try {
+      const t = localStorage.getItem('lfm3.theme');
+      if (t) document.documentElement.dataset.theme = t;
+      else if (matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.dataset.theme = 'light';
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#/chat" style="text-decoration:none;color:inherit">
+        <div class="brand-mark"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M5 21c3.4-10 6.6 4.5 10-5.5s4.6-3.3 6-3.3 3.3.5 5.5-1.2" stroke="currentColor" stroke-width="2.8" fill="none" stroke-linecap="round"/></svg></div>
+        <div>
+          <div class="brand-name">Sthanik</div>
+          <div class="brand-sub">Local AI studio</div>
+        </div>
+      </a>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <div class="gpu-card" id="gpu-card"></div>
+        <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme"></button>
+        <button class="theme-toggle" id="quit-btn" title="Stop Sthanik and unload the model" aria-label="Quit Sthanik" hidden></button>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu"></button>
+        <div class="topbar-title">
+          <h1 id="page-title"></h1>
+          <p id="page-sub"></p>
+        </div>
+        <div class="topbar-right">
+          <span id="model-pill"></span>
+          <button class="icon-btn" id="theme-toggle-top" type="button"></button>
+        </div>
+      </header>
+      <main class="view" id="view"></main>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="toasts" id="toasts"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

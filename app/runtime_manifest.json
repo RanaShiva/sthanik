@@ -1,0 +1,154 @@
+{
+ "llama": {
+  "repo": "ggml-org/llama.cpp",
+  "tag": "b11979",
+  "assets": {
+   "cudart-llama-b11979-bin-ubuntu-cuda-12.8-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-b11979-bin-ubuntu-cuda-12.8-x64.tar.gz",
+    "size": 594370822,
+    "sha256": "c5df3ae0e136b01bb9f186a5db3591cc9f8686874bc2fc14f721821cd38ad0c6"
+   },
+   "cudart-llama-b11979-bin-ubuntu-cuda-13.4-arm64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-b11979-bin-ubuntu-cuda-13.4-arm64.tar.gz",
+    "size": 552521502,
+    "sha256": "5d01c9a98c98cca2c5b092eb7b23cde5c728292de79d2f224df228f4a6b97d00"
+   },
+   "cudart-llama-b11979-bin-ubuntu-cuda-13.4-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-b11979-bin-ubuntu-cuda-13.4-x64.tar.gz",
+    "size": 440232353,
+    "sha256": "4a6f1474b8103195d6dfbfece6013f2b471efa829ce1258f54b3671d73ca1ff3"
+   },
+   "cudart-llama-bin-win-cuda-12.4-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-bin-win-cuda-12.4-x64.zip",
+    "size": 391443627,
+    "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+   },
+   "cudart-llama-bin-win-cuda-13.4-arm64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-bin-win-cuda-13.4-arm64.zip",
+    "size": 153262407,
+    "sha256": "642dcde8805b3e3165ca710a5443b3b4044b27d96bd3ee3132473988c9bcb774"
+   },
+   "cudart-llama-bin-win-cuda-13.4-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/cudart-llama-bin-win-cuda-13.4-x64.zip",
+    "size": 423535356,
+    "sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668"
+   },
+   "llama-b11979-bin-macos-arm64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-macos-arm64.tar.gz",
+    "size": 16463363,
+    "sha256": "291b1e3f059f647696fc14a8eeea77f2997ff062f7b2793134e1dee08c9812c5"
+   },
+   "llama-b11979-bin-macos-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-macos-x64.tar.gz",
+    "size": 12207718,
+    "sha256": "9db94411d3d9a4a73e1e84f34328ad46e06558f61c09e5ec6bd383aadcd02a01"
+   },
+   "llama-b11979-bin-ubuntu-arm64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-arm64.tar.gz",
+    "size": 18429658,
+    "sha256": "eeebf8c743874fc9107ff9302367f3b1e56fd5677ece2d9a207e9c1c1f908191"
+   },
+   "llama-b11979-bin-ubuntu-cuda-12.8-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-cuda-12.8-x64.tar.gz",
+    "size": 182528241,
+    "sha256": "ee8147751262cbc7c98cffd9c18f813e715a33e04b0b4e960e0fb1e8cc6324b7"
+   },
+   "llama-b11979-bin-ubuntu-cuda-13.4-arm64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-cuda-13.4-arm64.tar.gz",
+    "size": 159081364,
+    "sha256": "cf83dda1b49cd503b02e9a58877afb2566615e3a30ac7ee37fcad2798e24665e"
+   },
+   "llama-b11979-bin-ubuntu-cuda-13.4-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-cuda-13.4-x64.tar.gz",
+    "size": 163958298,
+    "sha256": "2ce370dd591003e4853e540f9ee6e079ada782a188e62b81a6a90184c56baf70"
+   },
+   "llama-b11979-bin-ubuntu-vulkan-arm64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-vulkan-arm64.tar.gz",
+    "size": 28844085,
+    "sha256": "fba7244276480fb3a1c3edd1767c9012fca50097a21f64d31567a58b5d5b425f"
+   },
+   "llama-b11979-bin-ubuntu-vulkan-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-vulkan-x64.tar.gz",
+    "size": 35475908,
+    "sha256": "2b5968b6d195bd3e7b7cb5512744498ad9f4d2cd000b0d3220e36749fcde8174"
+   },
+   "llama-b11979-bin-ubuntu-x64.tar.gz": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-ubuntu-x64.tar.gz",
+    "size": 22692548,
+    "sha256": "437879071395165dafd08bbd70f9eb9b0353698b5278d09504a2a97b46e81130"
+   },
+   "llama-b11979-bin-win-cpu-arm64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-cpu-arm64.zip",
+    "size": 13021140,
+    "sha256": "e07fc3b76bc1f9810913192d603a7e80fa4eb2c77b01fe1135705271d3f2e63e"
+   },
+   "llama-b11979-bin-win-cpu-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-cpu-x64.zip",
+    "size": 24408679,
+    "sha256": "212aa9005c1c32558898e61845665b1860fe7796acc231a335d557c5bdb604af"
+   },
+   "llama-b11979-bin-win-cuda-12.4-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-cuda-12.4-x64.zip",
+    "size": 279763887,
+    "sha256": "ef962fdbd7b47d3d33406f03988f1975fbe76c43fa3680932ffa13d0a9a1c7cc"
+   },
+   "llama-b11979-bin-win-cuda-13.4-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-cuda-13.4-x64.zip",
+    "size": 164987344,
+    "sha256": "fead15651fa63095c7415ef29c87d5d31bc6a2f2c21cf325871fc84e9b08b1d5"
+   },
+   "llama-b11979-bin-win-vulkan-arm64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-vulkan-arm64.zip",
+    "size": 25551244,
+    "sha256": "494bcee42d825680988e0da0f03e196ebafdd79ee851c2228f8e1fed8ce073d6"
+   },
+   "llama-b11979-bin-win-vulkan-x64.zip": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11979/llama-b11979-bin-win-vulkan-x64.zip",
+    "size": 37346455,
+    "sha256": "001c6ece77eedda70271b01d9d20415f9149f2bf648d2112f4589f696c75a02c"
+   }
+  }
+ },
+ "sd": {
+  "repo": "leejet/stable-diffusion.cpp",
+  "tag": "master-1031-c6dfa9d",
+  "assets": {
+   "cudart-sd-bin-win-cu12-x64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/cudart-sd-bin-win-cu12-x64.zip",
+    "size": 563452046,
+    "sha256": "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d"
+   },
+   "sd-master-c6dfa9d-bin-Darwin-macOS-26.6.2-arm64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-Darwin-macOS-26.6.2-arm64.zip",
+    "size": 37603978,
+    "sha256": "33282a6708809185d9c66d073bfb2feed7b302a4eb40c5e1829c13dab1a80f5d"
+   },
+   "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip",
+    "size": 37698801,
+    "sha256": "8c7a4b9364ac8ff75635cd6ddbc858bea4e0224a746b0ba0dc7d2e32e4929a41"
+   },
+   "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64.zip",
+    "size": 27338281,
+    "sha256": "05020fdf7fd5c710c2b55bf3bd43a3b60439bdd6b57eee7fca5d14c2084b421a"
+   },
+   "sd-master-c6dfa9d-bin-win-cpu-x64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-win-cpu-x64.zip",
+    "size": 18094519,
+    "sha256": "82f2fa57e325895d2d1d649a9ed48e35cda7a415a255f9fc3c9d682381960f08"
+   },
+   "sd-master-c6dfa9d-bin-win-cuda12-x64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-win-cuda12-x64.zip",
+    "size": 354188849,
+    "sha256": "b1754e73934f4e1c1cc61d6228ebff44624c8a528a9ab850ad07d5179a3dbbac"
+   },
+   "sd-master-c6dfa9d-bin-win-vulkan-x64.zip": {
+    "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-win-vulkan-x64.zip",
+    "size": 29827028,
+    "sha256": "31a26c404fab36ba8fe527116c4f039e70fe3f440cd6b75b28ff06305532208c"
+   }
+  }
+ }
+}

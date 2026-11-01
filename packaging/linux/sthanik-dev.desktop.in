@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Sthanik
+GenericName=Local AI studio
+Comment=Start the local AI studio and open it in your browser
+Exec=@DIR@/sthanik.sh
+Path=@DIR@
+Icon=@DIR@/app/static/sthanik.svg
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+Actions=Stop;
+
+[Desktop Action Stop]
+Name=Stop Sthanik
+Exec=@DIR@/sthanik.sh stop

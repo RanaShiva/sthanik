@@ -1,0 +1,74 @@
+name: Build and release
+
+# Builds the packaged program for every system and checks each one by running its own self-test.
+# Push a tag such as v2.0.0 to publish them as a GitHub release; "Run workflow" builds without publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux is built on the oldest runner so the program also runs on older distributions (it needs the glibc it was built with)
+          - { name: linux-x86_64, os: ubuntu-22.04, run: "dist/sthanik/sthanik" }
+          - { name: linux-arm64, os: ubuntu-22.04-arm, run: "dist/sthanik/sthanik" }
+          - { name: windows-x64, os: windows-2025, run: "dist/Sthanik/Sthanik.exe" }
+          - { name: macos-arm64, os: macos-15, run: "dist/Sthanik.app/Contents/MacOS/Sthanik" }
+          - { name: macos-x86_64, os: macos-15-intel, run: "dist/Sthanik.app/Contents/MacOS/Sthanik" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements-build.txt
+      - name: Build
+        run: pyinstaller --noconfirm --distpath dist --workpath build packaging/sthanik.spec
+      - name: Self-test the program that was built
+        shell: bash
+        run: ./${{ matrix.run }} --selftest
+      - name: Package
+        run: python packaging/package.py
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = (python -c "exec(open('app/version.py').read()); print(VERSION)")
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" packaging\windows\sthanik.iss
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sthanik-${{ matrix.name }}
+          path: |
+            release/*
+            !release/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: sha256sum Sthanik-* | tee SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --title "Sthanik ${GITHUB_REF_NAME#v}" --generate-notes

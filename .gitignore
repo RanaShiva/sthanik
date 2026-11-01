@@ -1,0 +1,33 @@
+# Large, generated or personal: never committed.
+
+# model weights (15 GB)
+/models/
+# llama.cpp / stable-diffusion.cpp binaries
+/bin/
+# Python environment
+/.venv/
+# archives, logs, doc snapshots
+/downloads/
+# your chats, documents, images, schedules, run history
+/data/
+# installed skills (built-ins are re-created from app/builtin_skills)
+/skills/
+/config/skills.json
+/config/tools.json
+
+__pycache__/
+*.pyc
+*.tmp
+.DS_Store
+.env
+/config/models.json
+
+# SearXNG runtime config (holds a random secret)
+/searxng/config/
+
+# packaging output
+/dist/
+/build/
+/release/
+# what setup detected on this computer
+/config/hardware.json
