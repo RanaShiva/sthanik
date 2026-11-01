@@ -236,6 +236,24 @@ def choose_runtime(hw: dict) -> list[dict]:
 # ---------------------------------------------------------------- which weights
 QUANTS = ("BF16", "Q8_0", "Q4_K_M")
 QUANT_NOTE = {"BF16": "full precision, the largest files", "Q8_0": "8-bit, about half the size", "Q4_K_M": "4-bit, about a third of the size"}
+_QUANT_RANK = ("BF16", "F16", "Q8_0", "Q6_K", "Q5_K_M", "Q5_K_S", "Q5_K", "Q4_K_M", "Q4_K_S", "Q4_K", "Q4_1", "Q4_0")
+
+
+def quant_note(q: str) -> str:
+    """A few words on what a precision means, for the ones the app does not describe itself."""
+    if q in QUANT_NOTE:
+        return QUANT_NOTE[q]
+    if q in ("F16", "F32"):
+        return "full precision, the largest files"
+    m = re.match(r"(?:[A-Z]+-)?I?Q(\d)", q)
+    return f"{m.group(1)}-bit, smaller and a little less exact" if m else "an alternative precision"
+
+
+def quant_order(q: str) -> tuple[int, int, str]:
+    """Most bits and most exact first, the odd ones last."""
+    m = re.match(r"(?:[A-Z]+-)?I?Q(\d)", q)
+    bits = 16 if q in ("BF16", "F16", "F32") else int(m.group(1)) if m else 0
+    return (-bits, _QUANT_RANK.index(q) if q in _QUANT_RANK else len(_QUANT_RANK), q)
 
 
 def model_budget_mb(hw: dict) -> tuple[int, str]:

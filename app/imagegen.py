@@ -28,11 +28,13 @@ ROOT = paths.HOME  # user data, models and binaries; see paths.py
 SD_DIR = Path(os.environ.get("LFM3_SD_DIR") or ROOT / "bin" / "sd")
 SD_CLI = SD_DIR / ("sd-cli.exe" if sys.platform == "win32" else "sd-cli")
 IMG_DIR = ROOT / "models" / "image"
-FILES = {
-    "diffusion": IMG_DIR / "z_image_turbo-Q4_K.gguf",
-    "llm": IMG_DIR / "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-    "vae": IMG_DIR / "ae.safetensors",
-}
+
+
+def files() -> dict[str, Path]:
+    """The three model files in use. The precision of the first two is the one chosen in Setup (config/image.json)."""
+    return {k: IMG_DIR / name for k, name in installer.image_selection().items()}
+
+
 # Sizes are multiples of 64 and small enough for a laptop GPU with the weights offloaded to RAM.
 SIZES = {"square": (768, 768), "landscape": (960, 576), "portrait": (576, 960), "wide": (1024, 512)}
 TIMEOUT = 15 * 60
@@ -47,7 +49,7 @@ class ImageError(Exception):
 
 def missing() -> list[str]:
     out = [f"{SD_CLI.relative_to(ROOT)}"] if not SD_CLI.is_file() else []
-    out += [str(p.relative_to(ROOT)) for p in FILES.values() if not p.is_file()]
+    out += [str(p.relative_to(ROOT)) for p in files().values() if not p.is_file()]
     return out
 
 
@@ -117,7 +119,8 @@ class ImageGen:
                 await self.free_gpu()
                 with tempfile.TemporaryDirectory(prefix="sthanik-sd-") as tmp:
                     out = Path(tmp) / "out.png"
-                    cmd = [str(SD_CLI), "--diffusion-model", str(FILES["diffusion"]), "--vae", str(FILES["vae"]), "--llm", str(FILES["llm"]),
+                    f = files()
+                    cmd = [str(SD_CLI), "--diffusion-model", str(f["diffusion"]), "--vae", str(f["vae"]), "--llm", str(f["llm"]),
                            "-p", prompt, "--cfg-scale", "1.0", "--steps", str(steps), "-W", str(w), "-H", str(h), "--seed", str(seed),
                            "--offload-to-cpu", "--diffusion-fa", "-o", str(out)]
                     env = installer.runtime_env(SD_DIR)

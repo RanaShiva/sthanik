@@ -87,7 +87,21 @@ def run_setup(args) -> int:
 
     async def go() -> int:
         setup = installer.Setup()
-        opts = {"components": args.parts.split(",") if args.parts else ["text"], "quant": args.quant or "", "image": args.pictures}
+        # --quant Q8_0 for every part, or per part: text=BF16,vl=Q8_0,diffusion=Q6_K
+        quant, quants = "", {}
+        for item in (args.quant or "").split(","):
+            if "=" in item:
+                k, _, v = item.partition("=")
+                quants[k.strip()] = v.strip()
+            elif item.strip():
+                quant = item.strip()
+        models = {}
+        for item in args.own or []:  # PART=MODEL.gguf  or  PART=MODEL.gguf::MMPROJ.gguf
+            part, _, files = item.partition("=")
+            model, _, mmproj = files.partition("::")
+            models[part.strip()] = {"model": model, "mmproj": mmproj or None}
+        own = {"engine": args.llama, "models": models}
+        opts = {"components": args.parts.split(",") if args.parts else ["text"], "quant": quant, "quants": quants, "image": args.pictures, "own": own if (args.llama or models) else {}}
         p = await installer.plan(opts)
         hw = p["hardware"]
         print(f"System: {hw['os']} {hw['arch']} | {hw['cpu']} | {(hw['ram_mb'] or 0) // 1024} GB RAM | " + (", ".join(g["name"] for g in hw["gpus"]) or "no graphics card"))
@@ -166,8 +180,10 @@ def run_selftest(server_module, port: int) -> int:
                     check(f"import {module}", False, repr(e))
             r = c.get("/api/setup/status")
             check("setup status", r.status_code == 200, r.text[:200])
+            found = c.get("/api/setup/detect")
+            check("setup lists the engines and model files already on this computer", found.status_code == 200 and isinstance(found.json().get("engines"), list) and isinstance(found.json().get("files"), list), found.text[:200])
             # bad input must be refused with a clear 4xx, never a server error, and must never reach the file system
-            for path in ("/api/memory", "/api/documents/export", "/api/tools/call", "/api/skills/match", "/api/projects", "/api/schedules"):
+            for path in ("/api/memory", "/api/documents/export", "/api/tools/call", "/api/skills/match", "/api/projects", "/api/schedules", "/api/setup/start"):
                 bad = [c.post(path, content=b"{nope", headers={"Content-Type": "application/json"}), c.post(path, content=b"", headers={"Content-Type": "application/json"}), c.post(path, json=[1, 2])]
                 check(f"malformed body to {path} is refused", all(400 <= r.status_code < 500 for r in bad), str([r.status_code for r in bad]))
             for path in ("/api/documents/%00", "/api/chats/%00"):
@@ -198,7 +214,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data-dir", help="where chats, models and settings are kept")
     ap.add_argument("--setup", action="store_true", help="install the engine and models from the terminal, then exit")
     ap.add_argument("--parts", help="with --setup: comma-separated parts to install (text,vl,omni,audio; default text)")
-    ap.add_argument("--quant", choices=("BF16", "Q8_0", "Q4_K_M"), help="with --setup: the precision (default: what suits this computer)")
+    ap.add_argument("--quant", help="with --setup: the precision, for every part (Q8_0) or per part (text=BF16,vl=Q8_0,diffusion=Q6_K); default: what suits this computer")
+    ap.add_argument("--llama", help="with --setup: use this llama-server (or the folder it is in) instead of downloading one")
+    ap.add_argument("--own", action="append", help="with --setup: use your own weights for a part: PART=MODEL.gguf, or PART=MODEL.gguf::MMPROJ.gguf (repeat for more parts)")
     ap.add_argument("--pictures", action="store_true", help="with --setup: also install picture drawing")
     ap.add_argument("--selftest", action="store_true", help="check that this build works, then exit")
     ap.add_argument("--version", action="store_true")

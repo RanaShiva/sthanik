@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import bringin
 import chats
 import diagrams
 import docagent
@@ -506,12 +507,45 @@ async def quit_app():
 
 
 # ---- first-run setup: detect this computer, install the engine and the models it can run
+def _quants(raw) -> dict[str, str]:
+    """{"text": "Q8_0", ...}: only known parts and plain precision names."""
+    ok = set(installer.COMPONENTS) | set(installer.IMAGE_MODELS)
+    return {str(k): str(v) for k, v in (raw.items() if isinstance(raw, dict) else []) if k in ok and re.fullmatch(r"[A-Za-z0-9_\-]{2,20}", str(v))}
+
+
+def _own(raw) -> dict:
+    """The user's own engine and weights, as the Setup page sends them: {"engine": path, "models": {part: {"model": path, "mmproj": path}}}."""
+    if not isinstance(raw, dict):
+        return {}
+    path = lambda v: str(v).strip()[:1024] if isinstance(v, str) and v.strip() and "\x00" not in v else ""  # noqa: E731
+    models = {}
+    for k, v in (raw.get("models") or {}).items() if isinstance(raw.get("models"), dict) else []:
+        if k in installer.COMPONENTS and isinstance(v, dict) and path(v.get("model")):
+            models[k] = {"model": path(v.get("model")), "mmproj": path(v.get("mmproj")) or None}
+    out = {}
+    if path(raw.get("engine")):
+        out["engine"] = path(raw["engine"])
+    if models:
+        out["models"] = models
+    return out
+
+
 @app.get("/api/setup/plan")
-async def setup_plan(quant: str = ""):
+async def setup_plan(quant: str = "", quants: str = ""):
     try:
-        return await installer.plan({"quant": quant})
+        try:
+            per_part = _quants(json.loads(quants)) if quants else {}
+        except ValueError:
+            per_part = {}
+        return await installer.plan({"quant": quant, "quants": per_part})
     except (installer.SetupError, httpx.HTTPError) as e:
         raise HTTPException(502, f"Could not prepare the plan: {e}")
+
+
+@app.get("/api/setup/detect")
+async def setup_detect():
+    """llama-server programs and .gguf files already on this computer, to offer as choices on the Setup page."""
+    return await asyncio.to_thread(bringin.detect, registry.MODELS_DIR)
 
 
 @app.get("/api/setup/status")
@@ -522,7 +556,8 @@ async def setup_status():
 @app.post("/api/setup/start")
 async def setup_start(request: Request):
     body = await _body(request)
-    opts = {"components": [str(c) for c in body.get("components") or []], "quant": str(body.get("quant") or ""), "image": bool(body.get("image")),
+    opts = {"components": [str(c) for c in body.get("components") or []] if isinstance(body.get("components"), list) else [], "quant": str(body.get("quant") or ""),
+            "quants": _quants(body.get("quants")), "image": bool(body.get("image")), "own": _own(body.get("own")),
             "engine": body.get("engine", True) is not False, "reinstall_engine": bool(body.get("reinstall_engine"))}
     try:
         return setup.start(opts)
@@ -557,7 +592,7 @@ def _slot_view(key: str) -> dict:
 async def registry_get():
     image_roles = {"diffusion": ("Z-Image Turbo", "Draws the picture"), "llm": ("Qwen3-4B text encoder", "Reads the prompt"), "vae": ("Image decoder (VAE)", "Turns the result into pixels")}
     image_files = [{"path": f.relative_to(ROOT).as_posix(), "size": f.stat().st_size, "label": image_roles.get(k, (f.name, ""))[0], "role": image_roles.get(k, ("", ""))[1]}
-                   for k, f in imagegen.FILES.items() if f.is_file()]
+                   for k, f in imagegen.files().items() if f.is_file()]
     return {"models": {k: _slot_view(k) for k in MODELS}, "files": registry.discover(), "image_files": image_files, "downloads": downloads.snapshot()}
 
 

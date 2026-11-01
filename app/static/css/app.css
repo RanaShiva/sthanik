@@ -832,3 +832,13 @@ a.btn { text-decoration: none; }
 .move-row.active { font-weight: 650; }
 .move-row.new { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 9px 9px; color: var(--accent); }
 .move-gap { width: 14px; flex: none; }
+
+/* Setup: one block per model with its own precision and, optionally, files the user already has */
+.part { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); }
+.part:first-of-type { border-top: 0; }
+.prec { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prec > span { min-width: 120px; font-size: 12.5px; color: var(--muted); }
+.prec select { flex: 1; min-width: 220px; max-width: 560px; }
+.own { padding: 8px 0 2px; }
+.linkish { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent, var(--text)); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+.linkish:hover { opacity: .8; }
