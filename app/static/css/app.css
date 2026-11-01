@@ -251,7 +251,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .chat-shell { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; overflow: clip; border-radius: 4px; }
 .chat-main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .chat-toolbar { position: absolute; top: 0; right: 4px; z-index: 6; display: flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-.chat-scroll { flex: 1; overflow: auto; padding: 8px 6px 18px; overflow-anchor: none; overscroll-behavior: contain; }
+.chat-scroll { flex: 1; overflow: auto; padding: 46px 6px 18px; /* clear of the floating .chat-toolbar, which used to cover the first message */ overflow-anchor: none; overscroll-behavior: contain; }
 .jump { position: absolute; left: 50%; bottom: 112px; transform: translate(-50%, 8px); width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-3); color: var(--text); display: grid; place-items: center; box-shadow: var(--shadow-sm); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 5; }
 .jump.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
 .jump svg { width: 16px; height: 16px; }
