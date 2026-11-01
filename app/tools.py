@@ -36,12 +36,14 @@ import httpx
 from bs4 import BeautifulSoup
 
 import documents as docs
+import evidence
 import images
 import memory
 import outbound
 import paths
 import readers
 import safebrowsing
+import sources as search_sources  # _web_search has its own list called sources
 from skills import SkillError, SkillStore
 
 ROOT = paths.HOME  # user data, models and binaries; see paths.py
@@ -75,6 +77,12 @@ class Tool:
     group: str
     handler: Callable[[dict], Awaitable[ToolResult]]
     timeout: int = 90
+
+
+def _short(text: str, limit: int) -> str:
+    """One line cut at a word, for a title: some sites stuff theirs with several pages' worth of keywords."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -113,9 +121,18 @@ async def _web_search(args: dict) -> ToolResult:
         raise ToolError(f"Search failed: {e}") from e
     if not rows:
         return ToolResult(NO_RESULTS)
+    read = {}
+    if args.get("read_pages") is not False and search_sources.reading_enabled() and not rows[0].get("loose"):  # a loosely related result is not worth opening
+        try:
+            read = await evidence.excerpts(query, rows, _load_page)
+        except Exception:  # noqa: BLE001 - the snippets alone are still an answer
+            read = {}
     lines, sources = [], []
     for i, r in enumerate(rows, 1):
-        lines.append(f"[{i}] {r.get('title', '').strip()}\n    {r.get('href', '')}\n    {_clip(r.get('body', ''), 400)}")
+        line = f"[{i}] {_short(r.get('title', ''), 120)}\n    {r.get('href', '')}\n    {_clip(r.get('body', ''), 400)}"
+        if read.get(i - 1):
+            line += "\n    From the page: " + " … ".join(read[i - 1])
+        lines.append(line)
         sources.append({"title": r.get("title", ""), "url": r.get("href", "")})
     if rows and rows[0].get("loose"):
         lines.insert(0, "Note: the search engine matched only part of this query, so these results are loosely related. Say so if they do not answer it.")
@@ -180,9 +197,29 @@ async def _read_once(client: httpx.AsyncClient, url: str) -> tuple[int, httpx.He
         return r.status_code, r.headers, body, r.encoding
 
 
-async def _fetch_url(args: dict) -> ToolResult:
-    url = str(args.get("url", "")).strip()
-    limit = max(500, min(int(args.get("max_chars") or 6000), 20000))
+def _readable_text(raw: str, ctype: str) -> tuple[str, str]:
+    """(title, the page's text) from what a site sent: scripts, menus and footers are dropped and block boundaries become line breaks."""
+    text, title = raw, ""
+    if ctype in ("", "text/html", "application/xhtml+xml"):
+        soup = BeautifulSoup(text, "html.parser")
+        title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
+        for tag in soup(["script", "style", "noscript", "svg", "nav", "footer", "header", "aside", "form", "iframe"]):
+            tag.decompose()
+        node = soup.find("main") or soup.find("article") or soup.body or soup
+        for t in node.find_all(["p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "section", "pre", "blockquote", "br"]):
+            t.append("\n")  # block boundaries become line breaks; inline tags just join with spaces
+        text = node.get_text(" ")
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r" ?\n ?", "\n", text)
+    return title, re.sub(r"\n\s*\n+", "\n\n", text).strip()
+
+
+async def _load_page(url: str) -> tuple[str, str, str]:
+    """(title, the whole text, final address) of a page. Wikipedia and Stack Overflow come through their own interfaces. Pages read in the last five
+    minutes are not fetched again (search reads the top ones, and the model may ask for one of them next)."""
+    hit = evidence.cached_page(url)
+    if hit:
+        return hit
     first = urlparse(url)
     if first.scheme not in ("http", "https") or not first.hostname:
         raise ToolError("Only http(s) URLs are supported.")
@@ -191,8 +228,10 @@ async def _fetch_url(args: dict) -> ToolResult:
     except Exception:  # noqa: BLE001 - whatever went wrong, the page itself is still worth a try
         special = None
     if special:
-        title, text = special
-        return ToolResult(f"{title}\n{url}\n\n" + _clip(text, limit), [{"title": title, "url": url}])
+        page = (special[0], special[1], url)
+        evidence.remember_page(url, page)
+        return page
+    start = url
     try:
         async with httpx.AsyncClient(follow_redirects=False, timeout=httpx.Timeout(15, connect=8), headers=PAGE_HEADERS, proxy=outbound.proxy()) as client:
             for _ in range(6):
@@ -218,21 +257,16 @@ async def _fetch_url(args: dict) -> ToolResult:
     except httpx.HTTPError as e:
         raise ToolError(f"Could not read {urlparse(url).hostname} ({type(e).__name__}). Use another of the search results instead.") from e
     ctype = headers.get("content-type", "").split(";")[0].strip().lower()
-    encoding = encoding or "utf-8"
-    text = body.decode(encoding, errors="replace")
-    title = ""
-    if ctype in ("", "text/html", "application/xhtml+xml"):
-        soup = BeautifulSoup(text, "html.parser")
-        title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
-        for tag in soup(["script", "style", "noscript", "svg", "nav", "footer", "header", "aside", "form", "iframe"]):
-            tag.decompose()
-        node = soup.find("main") or soup.find("article") or soup.body or soup
-        for t in node.find_all(["p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "section", "pre", "blockquote", "br"]):
-            t.append("\n")  # block boundaries become line breaks; inline tags just join with spaces
-        text = node.get_text(" ")
-    text = re.sub(r"[ \t\r\f\v]+", " ", text)
-    text = re.sub(r" ?\n ?", "\n", text)
-    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
+    title, text = await asyncio.to_thread(_readable_text, body.decode(encoding or "utf-8", errors="replace"), ctype)
+    page = (title, text, url)
+    evidence.remember_page(start, page)
+    return page
+
+
+async def _fetch_url(args: dict) -> ToolResult:
+    url = str(args.get("url", "")).strip()
+    limit = max(500, min(int(args.get("max_chars") or 6000), 20000))
+    title, text, url = await _load_page(url)
     head = f"{title}\n{url}\n\n" if title else f"{url}\n\n"
     return ToolResult(head + _clip(text, limit), [{"title": title or urlparse(url).hostname, "url": url}])
 
@@ -747,7 +781,7 @@ class ToolHub:
         def add(name, desc, schema, group, handler):
             self.builtin[name] = Tool(name, desc, schema, group, handler)
 
-        add("web_search", "Search the web for current information, facts, documentation or anything you do not know. Returns titles, URLs and snippets.",
+        add("web_search", "Search the web for current information, facts, documentation or anything you do not know. Returns titles, URLs and snippets, and for the top results the passages of the page itself that match the question (marked From the page).",
             WEB_SCHEMA_Q, "web", _web_search)
         add("news_search", "Search recent news articles on a topic. Returns headlines, sources, dates and URLs.",
             WEB_SCHEMA_Q, "web", _news_search)

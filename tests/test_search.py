@@ -15,6 +15,7 @@ _home = tempfile.mkdtemp(prefix="sthanik-test-")
 os.environ["STHANIK_HOME"] = _home  # before the modules read it
 os.environ.pop("LFM3_SEARXNG", None)
 
+import evidence  # noqa: E402
 import readers  # noqa: E402
 import safebrowsing as sb  # noqa: E402
 import sources  # noqa: E402
@@ -390,6 +391,139 @@ def test_pages_that_refuse_once_are_asked_again_and_refusals_say_what_to_do_next
             else:
                 raise AssertionError(path + " did not fail")
         assert _Site.hits["/blocked"] == 2, "a refusal is tried twice, not more"
+    finally:
+        tools._check_public_host = saved
+        srv.shutdown()
+
+
+PAGE_NOBEL = """Cookie notice: we use cookies. Accept all cookies. Privacy policy.
+
+The Nobel Prize in Physics 2024 was awarded jointly to John J. Hopfield and Geoffrey Hinton "for foundational discoveries and inventions that enable machine learning with artificial neural networks".
+
+Physics Chemistry Medicine Literature Peace Economics Facts Prizes Nominations Press Archive
+
+Hopfield created an associative memory that can store and reconstruct images. Hinton used the Hopfield network as the foundation of a new network that uses a different method.
+
+The prize amount is 11 million Swedish kronor, to be shared equally between the laureates."""
+
+
+def test_a_page_is_cut_into_passages_at_sentence_ends():
+    text = " ".join(f"This is sentence number {i} of a rather long paragraph about nothing in particular." for i in range(30))
+    ps = evidence.split_passages(text, 480)
+    assert 3 <= len(ps) <= 12 and all(len(p) <= 480 + 100 for p in ps), [len(p) for p in ps]
+    assert all(p.endswith(".") for p in ps), "cut at the end of a sentence"
+    assert evidence.split_passages("Too short.\n\nAlso short.") == [], "scraps are not passages"
+    run = "word " * 400
+    assert all(len(p) <= 720 for p in evidence.split_passages(run, 480)), "a long run with no full stop is cut too"
+
+
+def test_the_passage_that_answers_the_question_is_chosen_not_the_page_furniture():
+    got = evidence.best_passages("who won the 2024 Nobel Prize in Physics", {0: PAGE_NOBEL}, per_page=1)
+    assert "Hopfield and Geoffrey Hinton" in got[0][0] and "cookies" not in got[0][0], got
+    got = evidence.best_passages("what is the prize amount in Swedish kronor", {0: PAGE_NOBEL}, per_page=1)
+    assert "11 million" in got[0][0]
+    a = "The committee will meet again soon, in the main hall of the old academy building."
+    b = "The committee will meet again in 1901, in the main hall of the old academy building."
+    assert evidence.best_passages("when will the committee meet", {0: a + "\n\n" + b}, per_page=1)[0][0] == b, "a question about a date prefers a passage with a number"
+    assert evidence.best_passages("who will the committee meet", {0: a + "\n\n" + b}, per_page=1)[0][0] == a, "and only then"
+    assert evidence.best_passages("completely unrelated quantum gravity", {0: PAGE_NOBEL}) == {}, "nothing is better than something off topic"
+    assert evidence.best_passages("Hopfield tractor", {0: PAGE_NOBEL}) == {}, "a two-word question must match both words"
+    menu = "How to Peel a Soft-Boiled Egg How Long Do Soft-Boiled Eggs Keep? Storage Tips Recipes Related"
+    real = "Boil the eggs for 6 to 7 minutes to reach a soft-boiled consistency, then cool them in ice water."
+    got = evidence.best_passages("how long to boil a soft boiled egg", {0: menu + "\n\n" + real}, per_page=1)
+    assert got[0][0] == real, got
+
+
+def test_two_passages_per_page_are_not_neighbours_and_come_back_in_reading_order():
+    para = lambda w: f"The {w} paragraph says that the Nobel Prize in Physics 2024 went to Hopfield and Hinton and talks about {w} for a while longer."
+    text = "\n\n".join(para(w) for w in ("first", "second", "third", "fourth", "fifth"))
+    got = evidence.best_passages("Nobel Prize in Physics 2024 Hopfield Hinton", {0: text}, per_page=2)[0]
+    assert len(got) == 2 and text.index(got[0]) < text.index(got[1])
+    assert not (("first" in got[0] and "second" in got[1]) or ("second" in got[0] and "third" in got[1])), got
+
+
+def test_pages_are_read_together_slow_and_refusing_ones_are_dropped_and_refusers_remembered():
+    evidence.clear()
+    asked = []
+
+    async def load(url):
+        asked.append(url)
+        if "slow" in url:
+            await asyncio.sleep(5)
+        if "refuse" in url:
+            raise tools.ToolError("refuse.example does not let programs read this page (HTTP 403). Use another of the search results instead.")
+        if "broken" in url:
+            raise RuntimeError("boom")
+        return "T", PAGE_NOBEL, url
+
+    rows_ = [{"href": h} for h in ("https://ok.example/a", "https://slow.example/b", "https://refuse.example/c", "https://broken.example/d", "https://later.example/e", "https://ok.example/f.pdf")]
+    t = time.time()
+    got = asyncio.run(evidence.excerpts("who won the 2024 Nobel Prize in Physics", rows_, load, pages=4, timeout=1.5))
+    assert time.time() - t < 3.0, "the slow page did not hold the search up"
+    assert list(got) == [0] and "Hopfield" in got[0][0], got
+    assert asked == ["https://ok.example/a", "https://slow.example/b", "https://refuse.example/c", "https://broken.example/d"], "the first four readable rows only, never the pdf"
+    assert evidence.is_blocked("refuse.example") and not evidence.is_blocked("broken.example")
+    asked.clear()
+    asyncio.run(evidence.excerpts("who won the 2024 Nobel Prize", [{"href": "https://refuse.example/c"}, {"href": "https://ok.example/z"}], load))
+    assert asked == ["https://ok.example/z"], "a site that refused is not asked again"
+    evidence.clear()
+    assert not evidence.is_blocked("refuse.example")
+
+
+def test_web_search_attaches_the_passages_and_still_answers_when_reading_fails():
+    saved_search, saved_load = sb.search, tools._load_page
+    evidence.clear()
+    found = [{"title": "T " * 100, "href": "https://ok.example/a", "body": "snippet one"}, {"title": "Second", "href": "https://bad.example/b", "body": "snippet two"}]
+    loaded = []
+
+    async def load(url):
+        loaded.append(url)
+        if "bad" in url:
+            raise tools.ToolError("nope")
+        return "Page", PAGE_NOBEL, url
+
+    sb.search = lambda kind, q, n: found
+    tools._load_page = load
+    try:
+        res = asyncio.run(tools._web_search({"query": "who won the 2024 Nobel Prize in Physics"}))
+        assert "From the page: " in res.text and "John J. Hopfield" in res.text and "snippet two" in res.text, res.text
+        assert res.text.count("From the page") == 1, "the page that could not be read has only its snippet"
+        assert len(res.text.splitlines()[0]) < 140, "a stuffed title is cut"
+        loaded.clear()
+        res = asyncio.run(tools._web_search({"query": "who won the 2024 Nobel Prize in Physics", "read_pages": False}))
+        assert "From the page" not in res.text and not loaded, "plan mode reads pages itself and asks for snippets only"
+        os.environ["LFM3_SEARCH_READ"] = "0"
+        try:
+            res = asyncio.run(tools._web_search({"query": "who won the 2024 Nobel Prize in Physics"}))
+            assert "From the page" not in res.text and not loaded, "reading can be switched off for good"
+        finally:
+            os.environ.pop("LFM3_SEARCH_READ")
+        found[0] = {**found[0], "loose": True}
+        res = asyncio.run(tools._web_search({"query": "who won the 2024 Nobel Prize in Physics"}))
+        assert not loaded and "loosely related" in res.text, "loosely related results are not opened"
+    finally:
+        sb.search, tools._load_page = saved_search, saved_load
+
+
+def test_a_page_read_for_a_search_is_not_fetched_again_when_the_model_asks_for_it():
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Site)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    saved = tools._check_public_host
+
+    async def allow(host):
+        return None
+
+    tools._check_public_host = allow
+    evidence.clear()
+    _Site.hits.clear()
+    try:
+        asyncio.run(tools._fetch_url({"url": base + "/page"}))
+        again = asyncio.run(tools._fetch_url({"url": base + "/page"}))
+        assert "The answer is 42." in again.text and _Site.hits["/page"] == 1, _Site.hits
+        sb.set_safe(True)  # switching the private session forgets pages as well
+        asyncio.run(tools._fetch_url({"url": base + "/page"}))
+        assert _Site.hits["/page"] == 2
     finally:
         tools._check_public_host = saved
         srv.shutdown()

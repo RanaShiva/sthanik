@@ -15,6 +15,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 
+import evidence
 import outbound
 import sources
 
@@ -35,6 +36,7 @@ def set_safe(safe: bool):
     _safe = bool(safe)
     _cache.clear()  # results for one mode must never be served in the other
     _stale.clear()
+    evidence.clear()
 
 
 def search_level() -> str:

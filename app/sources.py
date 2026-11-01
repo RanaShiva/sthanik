@@ -170,6 +170,15 @@ def extras_enabled() -> bool:
     return _setting("extras") is not False
 
 
+def reading_enabled() -> bool:
+    """A web search opens its top pages itself (evidence.py) unless the user turned that off: LFM3_SEARCH_READ=0, or {"read_pages": false} in
+    config/search.json. Then a search returns snippets only, as before, and a page is opened only when the model asks for it."""
+    env = (os.environ.get("LFM3_SEARCH_READ") or "").strip().lower()
+    if env:
+        return env not in ("0", "false", "no", "off")
+    return _setting("read_pages") is not False
+
+
 def searxng_address() -> str:
     """The user's own SearXNG, from LFM3_SEARXNG or config/search.json ({"searxng": "https://..."}). Empty when none was set."""
     url = (os.environ.get("LFM3_SEARXNG") or "").strip() or str(_setting("searxng") or "").strip()

@@ -463,7 +463,7 @@ export function createPlanner(host) {
         ran.push(query); searches++;
         step.phase = `Searching the web (${searches}): ${query.slice(0, 70)}`; ui.paint();
         let out = '';
-        try { out = String(await host.runTool({ id: `plan_${i}_search${searches}`, name: 'web_search', arguments: JSON.stringify({ query, max_results: 4 }) }, ui.toolHost(i))); } catch { continue; }
+        try { out = String(await host.runTool({ id: `plan_${i}_search${searches}`, name: 'web_search', arguments: JSON.stringify({ query, max_results: 4, read_pages: false }) }, ui.toolHost(i))); } catch { continue; }
         stop();
         if (!out || /^(Error:|No results)/.test(out)) continue;
         // Results that never mention the subject (a general paper on "sentiment analysis" for a question about one film) are noise, not sources.

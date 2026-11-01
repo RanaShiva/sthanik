@@ -20,6 +20,7 @@ import { streamChat, ensureModel, ensureLoaded, synthesize, transcribeAudio, beg
 import { toolstore } from './toolstore.js';
 import { isPrivate, privateWhere } from './safebrowsing.js';
 import { createMenu, makeInstruction, inferMake } from './createmenu.js';
+import { needsLookup, lookupQuery } from './lookup.js';
 import { clarify, looksLikeTask, needsCheck } from './clarify.js';
 import { createModeMenu } from './modemenu.js';
 import { Mic, fileToWav, encodeWav, resample, blobToB64, drawLevels } from './audio.js';
@@ -870,6 +871,16 @@ export function createChat(opts) {
       let wrapped = false; // tools are switched off and the model has been told to answer
       let idleRounds = 0; // rounds in a row in which the model only repeated itself
       let fellBack = false; // the turn ended with no text from the model and a note was written instead
+      // A question that asks for a fact (a figure, a date, "latest", "who won") is looked up before the model writes a word: a small model
+      // answers such things from memory, or searches once in the wrong place and gives up. The search shows as a card like any other.
+      if (toolsEnabled && !turnMake && !ws?.active && !wsCtx?.changing && toolstore.isGroupOn('web') && needsLookup(userText)
+          && !([...history].reverse().find((m) => m.role === 'user')?.media?.length) && toolstore.enabledTools().some((t) => t.name === 'web_search')) {
+        const call = { id: `lookup_${rid()}`, name: 'web_search', arguments: JSON.stringify({ query: lookupQuery(userText), max_results: 5 }) };
+        history.push({ role: 'assistant', text: '', reasoning: '', tool_calls: [call] });
+        let out = 'Error: Cancelled.';
+        try { out = await runTool(call, turn, sources, files, rec); toolRuns++; } finally { history.push({ role: 'tool', call_id: call.id, name: call.name, text: out }); }
+        if (abort.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      }
       for (let round = 0; ; round++) {
         if (round > 0) await ensureLoaded(model); // a tool such as image generation may have unloaded it
         const tools = toolsEnabled && round < MAX_TOOL_ROUNDS && !wrapped ? toolstore.schemas() : [];
