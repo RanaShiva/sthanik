@@ -52,9 +52,30 @@ jobs:
             !release/SHA256SUMS
           if-no-files-found: error
 
+  # The Linux package is also tried inside other distributions: it must start, pass its self-test, install and uninstall cleanly (and
+  # refuse, with a clear message, on a system whose glibc is too old). A release is not published if this fails.
+  distros:
+    name: Linux distributions (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: sthanik-linux-${{ matrix.arch }}
+          path: release
+      - name: Try the package in other distributions
+        run: packaging/linux/test-distros.sh release/Sthanik-*-linux-${{ matrix.arch }}.tar.gz
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, distros]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

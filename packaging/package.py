@@ -35,9 +35,10 @@ def linux(version: str) -> Path:
     stage.mkdir(parents=True)
     shutil.copytree(DIST / "sthanik", stage / "sthanik", symlinks=True)
     shutil.copy(ROOT / "packaging" / "linux" / "install.sh", stage / "install.sh")
-    shutil.copy(ROOT / "packaging" / "icons" / "sthanik-512.png", stage / "sthanik.png")
+    shutil.copytree(ROOT / "packaging" / "icons" / "linux", stage / "icons")
     (stage / "README.txt").write_text(f"Sthanik {version}\n\nRun ./install.sh to add it to your applications menu, or just run ./sthanik/sthanik.\n"
-                                      "On first start it looks at this computer and offers to install the engine and the models.\n")
+                                      "On first start it looks at this computer and offers to install the engine and the models.\n\n"
+                                      "To remove it later, run: sthanik-uninstall\nYour chats, documents and models are kept unless you add --purge.\n")
     out = OUT / f"{name}.tar.gz"
     with tarfile.open(out, "w:gz") as t:
         t.add(stage, arcname=name)
