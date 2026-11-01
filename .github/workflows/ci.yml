@@ -35,5 +35,7 @@ jobs:
         run: python -I tests/test_document_harness.py
       - name: Setup, hardware and project tests
         run: python -I tests/test_setup.py
+      - name: Page source guards
+        run: python -I tests/test_ui_source.py
       - name: Self-test (server starts, pages load, documents are made, hardware is read)
         run: python app/launcher.py --selftest

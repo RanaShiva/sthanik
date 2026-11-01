@@ -153,6 +153,21 @@ def run_selftest(server_module, port: int) -> int:
                     check(f"import {module}", False, repr(e))
             r = c.get("/api/setup/status")
             check("setup status", r.status_code == 200, r.text[:200])
+            # bad input must be refused with a clear 4xx, never a server error, and must never reach the file system
+            for path in ("/api/memory", "/api/documents/export", "/api/tools/call", "/api/skills/match", "/api/projects", "/api/schedules"):
+                bad = [c.post(path, content=b"{nope", headers={"Content-Type": "application/json"}), c.post(path, content=b"", headers={"Content-Type": "application/json"}), c.post(path, json=[1, 2])]
+                check(f"malformed body to {path} is refused", all(400 <= r.status_code < 500 for r in bad), str([r.status_code for r in bad]))
+            for path in ("/api/documents/%00", "/api/chats/%00"):
+                check(f"NUL character in {path} is refused", c.get(path).status_code == 400)
+            for path in ("/api/documents/..%2f..%2fconfig%2fx", "/api/chats/..%2f..%2fconfig%2fx", "/api/images/..%2f..%2fconfig%2fx", "/api/skills/docx/file?path=..%2f..%2f..%2f..%2fetc%2fpasswd"):
+                r = c.get(path)
+                check(f"path traversal {path[:45]} is refused", r.status_code in (400, 404, 422) and "root:" not in r.text, str(r.status_code))
+            r = c.post("/api/tools/call", json={"name": "calculator", "arguments": {"expression": "__import__('os').getcwd()"}})
+            check("the calculator does not run code", r.status_code < 500 and r.json().get("ok") is False, r.text[:160])
+            r = c.post("/api/tools/call", json={"name": "calculator", "arguments": {"expression": "9**9**9**9"}})
+            check("the calculator does not hang on huge powers", r.status_code < 500)
+            r = c.post("/api/tools/call", json={"name": "use_skill", "arguments": {"name": "no-such-skill"}})
+            check("an unknown skill answers with the skills that exist", "docx" in r.text and "mermaid" in r.text, r.text[:160])
     finally:
         server.should_exit = True
         thread.join(15)

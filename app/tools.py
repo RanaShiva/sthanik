@@ -900,7 +900,8 @@ class ToolHub:
         try:
             sk = self.skills.get(name)
         except SkillError as e:
-            raise ToolError(str(e)) from e
+            names = ", ".join(x["name"] for x in self.skills.enabled())
+            raise ToolError(f"There is no skill called '{name}' ({e}) Skills you can load: {names}. If none fits, answer without one.") from e
         if not sk["enabled"]:
             raise ToolError(f"Skill '{name}' is turned off.")
         extra = f"\n\nReference files (read with read_skill_file): {', '.join(sk['files'])}" if sk["files"] else ""

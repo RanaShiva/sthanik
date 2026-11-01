@@ -49,11 +49,19 @@ function languageRule(text) {
   }
   return '';
 }
+const MEDIA_HINT = 'The user attached audio, an image or a video to this message. Use what you hear or see to answer: the question is about the attachment.';
 const WRITE_NOW = 'Write your answer to the user now, directly in your reply, following the instructions you were already given and using any tool results above. Do not call tools or write tool calls.';
 const ANSWER_NOW = 'Write your answer to the user now, in plain language, directly in your reply. Do not call tools.';
+// A plan's research steps may search and calculate, never write files or memory: with the document tools on, a Complex answer once wrote
+// and re-edited three files in the user's Documents as scratch space. (A plan makes its own file at the end when one was asked for.)
+const PLAN_NEVER_USES = new Set([...MUTATING, 'remember', 'recall', 'forget']);
 const READ_ONLY_REPEATS = new Set(['web_search', 'news_search', 'fetch_url', 'use_skill', 'read_skill_file']);
 const ASKS_TO_REMEMBER = /\b(remember|keep in mind|don'?t forget|note (down )?that|from now on|save (this|that|it)|memori[sz]e)\b/i;
 const SAYS_CANNOT_LOOK_UP = /\b(don'?t|do not|can'?t|cannot|unable|not able|no access)\b[^.!?]*\b(current|latest|up[- ]to[- ]date|real[- ]time|live|look(ing)? (it |that |this )?up|browse|search|internet|online)\b/i;
+// The memory tools are offered only when the message is about memory. Offered always, a small model read "What did the speaker say?" about an
+// attached recording as a memory lookup, called recall, found nothing and answered "I don't have that in my memory".
+const ABOUT_MEMORY = /\b(recall|memory|memories|last time|previous(ly)?|earlier (chat|conversation|session|time)|(did|do|have) (i|you) (tell|told|say|said|mention|know)|i (told|said|mentioned)|what do you know about me|about me|my (name|favou?rite|preferences?|birthday|job|work|projects?|goals?|address|family))\b/i;
+const ABOUT_FORGETTING = /\b(forget|delete|remove|erase|clear)\b/i;
 const IDLE_ROUNDS_BEFORE_ANSWER = 2; // rounds in a row in which every call was a repeat: tools are switched off and the model must answer
 
 // ---- keeping a long conversation inside the model's window
@@ -200,7 +208,7 @@ function friendlyError(msg) {
   const m = /request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)/.exec(msg || '');
   if (!m) return msg;
   return `That request is ${(+m[1]).toLocaleString()} tokens but the model's window is ${(+m[2]).toLocaleString()}. ` +
-    'Try a shorter clip, fewer attachments, or clear the chat (earlier turns count too).';
+    'Shorten the message, attach less (a shorter clip, fewer files), or start a new chat: earlier turns count too. Your message is back in the box.';
 }
 
 export function createChat(opts) {
@@ -253,12 +261,13 @@ export function createChat(opts) {
     h('input', { type: 'checkbox', checked: speakDefault, onchange: (e) => { speakOn = e.target.checked; } }), icon('volume', 15), 'Speak');
 
   // tools: quick web switch + popover
-  const ws = toolsEnabled && createWorkspace({ onChange: () => scheduleSave(), getSignal: () => abort?.signal, mine: () => [...new Set(items.flatMap((it) => [...(it.files || []), ...(it.parts || []).flatMap((p) => p.files || [])].map((f) => f.name)))].reverse() });
+  // null, not false, when a page has no tools: the code calls ws?.x() and menu?.x(), and ?. only skips null and undefined (a false here made every send on the Vision page throw)
+  const ws = toolsEnabled ? createWorkspace({ onChange: () => scheduleSave(), getSignal: () => abort?.signal, mine: () => [...new Set(items.flatMap((it) => [...(it.files || []), ...(it.parts || []).flatMap((p) => p.files || [])].map((f) => f.name)))].reverse() }) : null;
   const webChip = toolsEnabled && h('button', { class: 'chip-btn', title: 'Let the model search the web' }, icon('globe', 15), 'Search');
-  const modeMenu = toolsEnabled && createModeMenu({ get: () => cfg.mode, set: (m) => { cfg.mode = m; if (m === 'simple') toolstore.force([]); persist(); renderTools(); input.focus(); } });
+  const modeMenu = toolsEnabled ? createModeMenu({ get: () => cfg.mode, set: (m) => { cfg.mode = m; if (m === 'simple') toolstore.force([]); persist(); renderTools(); input.focus(); } }) : null;
   // Safe browsing, the kinds of file to create and the tool switches live in one menu beside Search.
   let turnMake = null; // the file kind the turn in progress should end in
-  const menu = toolsEnabled && createMenu({ onPick: (kind) => { input.placeholder = kind ? `Describe what the ${kind.label} should contain…` : placeholder; if (kind) input.focus(); } });
+  const menu = toolsEnabled ? createMenu({ onPick: (kind) => { input.placeholder = kind ? `Describe what the ${kind.label} should contain…` : placeholder; if (kind) input.focus(); } }) : null;
 
   const composer = h('div', { class: 'composer' }, attachBar, viz, input,
     h('div', { class: 'composer-bar' }, attachBtn, micBtn, webChip, modeMenu && modeMenu.button, menu && menu.button, menu && menu.chosen, modeMenu && modeMenu.panel, menu && menu.panel, h('div', { class: 'grow' }), speakToggle, sendBtn), fileInput);
@@ -717,7 +726,7 @@ export function createChat(opts) {
       const skip = wsCtx?.excludeSkills || [];
       const cat = (toolstore.isGroupOn('skills') ? toolstore.group('skills')?.catalog || [] : []).filter((c) => !skip.includes(c.name) && !autoNames.includes(c.name));
       if (cat.length) {
-        sys += '\n\nYou have skills: packaged expert instructions. When the task matches one, call use_skill with its name BEFORE answering and follow it. Available skills:\n' +
+        sys += '\n\nYou have skills: packaged expert instructions. When the request is to make a file or a diagram, or to research something, and one skill below fits it, call use_skill with its name before answering and follow it. For an ordinary question just answer. Available skills:\n' +
           cat.map((c) => `- ${c.name}: ${c.description.slice(0, 240)}`).join('\n');
       }
     }
@@ -728,7 +737,8 @@ export function createChat(opts) {
     if (pinned) sys = [sys, pinned].filter(Boolean).join('\n\n');
     const shown = auto.filter((s) => s.name !== turnMake?.skill); // a file turn already carries its own skill
     if (shown.length) sys = [sys, 'These skills apply to this request. Follow them closely:\n\n' + shown.map((s) => `# Skill: ${s.name}\n\n${s.body}`).join('\n\n')].filter(Boolean).join('\n\n');
-    return [languageRule([...history].reverse().find((m) => m.role === 'user')?.text), sys].filter(Boolean).join('\n\n');
+    const lastUser = [...history].reverse().find((m) => m.role === 'user');
+    return [languageRule(lastUser?.text), lastUser?.media?.length ? MEDIA_HINT : '', sys].filter(Boolean).join('\n\n');
   }
 
   async function runTool(call, turn, sources, files, rec) {
@@ -853,7 +863,7 @@ export function createChat(opts) {
       wsCtx = ws ? await ws.context(userText) : null;
       turnImages = new Map(); turnDone.clear(); turnSeen.clear(); idleCalls = 0; squeeze = 0;
       toolstore.force([...(wsCtx?.force || []), ...(turnMake ? ['documents'] : [])]);
-      toolstore.hide(wsCtx?.hide || []);
+      toolstore.hide([...(wsCtx?.hide || []), ...(ASKS_TO_REMEMBER.test(userText) ? [] : ['remember']), ...(ABOUT_MEMORY.test(userText) || ASKS_TO_REMEMBER.test(userText) ? [] : ['recall']), ...(ABOUT_FORGETTING.test(userText) ? [] : ['forget'])]);
       toolstore.activeDoc = wsCtx?.activeName || null;
       toolstore.scope = wsCtx?.only || [];
       toolstore.turn = rid();
@@ -1046,7 +1056,7 @@ export function createChat(opts) {
     return {
       model, cfg, imagesAvailable,
       baseSystem: () => [cfg.system.trim(), `Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`].filter(Boolean).join('\n\n'),
-      tools: () => { if (toolsEnabled && cfg.mode === 'complex') toolstore.force(['web']); return toolsEnabled ? toolstore.schemas() : []; }, // Complex always searches the web
+      tools: () => { if (toolsEnabled && cfg.mode === 'complex') toolstore.force(['web']); return toolsEnabled ? toolstore.schemas().filter((t) => !PLAN_NEVER_USES.has(t.function.name)) : []; }, // Complex always searches the web
       skillsOn: () => toolstore.isGroupOn('skills'),
       begin() {
         if (abort) throw new Error('Another reply is still running. Wait for it to finish or press Stop.');

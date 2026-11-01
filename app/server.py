@@ -464,6 +464,8 @@ async def local_only(request: Request, call_next):
     origin = request.headers.get("origin")
     if origin and origin.split("://", 1)[-1] not in ALLOWED_HOSTS:
         return JSONResponse({"detail": "Forbidden origin"}, status_code=403)
+    if "\x00" in request.url.path or "\x00" in request.url.query:  # no file or setting name holds one; it would end in a 500 from the file system
+        return JSONResponse({"detail": "Invalid character in the address."}, status_code=400)
     if (not safebrowsing.is_safe() and request.method in ("POST", "PUT", "PATCH", "DELETE")
             and request.url.path.startswith(("/api/schedules", "/api/runs")) and request.url.path != "/api/schedules/preview"):
         return JSONResponse({"detail": "Schedules are paused while safe browsing is off: their prompts and results would be written to disk."}, status_code=409)
@@ -519,7 +521,7 @@ async def setup_status():
 
 @app.post("/api/setup/start")
 async def setup_start(request: Request):
-    body = await request.json()
+    body = await _body(request)
     opts = {"components": [str(c) for c in body.get("components") or []], "quant": str(body.get("quant") or ""), "image": bool(body.get("image")),
             "engine": body.get("engine", True) is not False, "reinstall_engine": bool(body.get("reinstall_engine"))}
     try:
@@ -564,7 +566,7 @@ async def registry_put(key: str, request: Request):
     if key not in MODELS:
         raise HTTPException(404, "unknown model")
     try:
-        ov = registry.validate(DEFAULT_MODELS[key], await request.json())
+        ov = registry.validate(DEFAULT_MODELS[key], await _body(request))
     except registry.RegistryError as e:
         _bad(e)
     saved = registry.load_overrides()
@@ -591,7 +593,7 @@ async def registry_reset(key: str):
 
 @app.delete("/api/models/files")
 async def model_file_delete(request: Request):
-    b = await request.json()
+    b = await _body(request)
     in_use = {m[k] for m in (*MODELS.values(), *DEFAULT_MODELS.values()) for k in ("model", "mmproj") if m.get(k)}
     try:
         freed = registry.delete_file(b.get("path", "") if isinstance(b, dict) else "", in_use)
@@ -607,7 +609,7 @@ async def downloads_list():
 
 @app.post("/api/models/downloads")
 async def downloads_start(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return downloads.start(str(b.get("repo", "")).strip(), str(b.get("file", "")).strip())
     except registry.RegistryError as e:
@@ -639,7 +641,7 @@ async def safe_browsing_get():
 
 @app.put("/api/safe-browsing")
 async def safe_browsing_put(request: Request):
-    b = await request.json()
+    b = await _body(request)
     if not isinstance(b, dict) or not isinstance(b.get("safe"), bool):
         raise HTTPException(400, "Send {\"safe\": true|false}.")
     safe = b["safe"]
@@ -676,14 +678,14 @@ async def list_tools():
 
 @app.post("/api/tools/call")
 async def call_tool(request: Request):
-    body = await request.json()
+    body = await _body(request)
     ctx = body.get("context") or {}
     return await hub.call(str(body.get("name", "")), body.get("arguments") or {}, str(ctx.get("active_document") or "") or None, ctx.get("only_sections") or None, str(ctx.get("turn") or "")[:40] or None)
 
 
 @app.post("/api/tools/files-root")
 async def set_files_root(request: Request):
-    body = await request.json()
+    body = await _body(request)
     try:
         hub.set_files_root((body.get("path") or "").strip() or None)
     except ToolError as e:
@@ -699,7 +701,7 @@ async def mcp_reload():
 
 @app.post("/api/mcp/servers")
 async def mcp_add(request: Request):
-    body = await request.json()
+    body = await _body(request)
     try:
         if body.get("command"):
             await hub.add_local_server(str(body.get("name", "")), str(body.get("command", "")), str(body.get("args", "")))
@@ -712,7 +714,7 @@ async def mcp_add(request: Request):
 
 @app.post("/api/mcp/servers/{name}/enabled")
 async def mcp_enable(name: str, request: Request):
-    body = await request.json()
+    body = await _body(request)
     try:
         await hub.set_server_enabled(name, bool(body.get("enabled")))
     except ToolError as e:
@@ -733,6 +735,21 @@ def _bad(e: Exception):
     raise HTTPException(400, str(e))
 
 
+async def _body(request: Request) -> dict:
+    """The JSON object a request carries. A body that is not one is the caller's mistake (400), not a server error; so is a NUL
+    character, which no file name can hold."""
+    raw = await request.body()
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise HTTPException(400, "The request body must be valid JSON.") from None
+    if not isinstance(data, dict):
+        raise HTTPException(400, "The request body must be a JSON object.")
+    if b"\\u0000" in raw:
+        raise HTTPException(400, "The request contains an invalid character.")
+    return data
+
+
 # ---- skills
 def skills_payload() -> dict:
     return {"skills": skills.list(), "removed_builtin": skills.state.get("removed", [])}
@@ -745,7 +762,7 @@ async def skills_list():
 
 @app.post("/api/skills/match")
 async def skills_match(request: Request):
-    b = await request.json()
+    b = await _body(request)
     return {"skills": skills.match(str(b.get("text", ""))[:20000], exclude=set(b.get("exclude") or []))}
 
 
@@ -755,7 +772,7 @@ _DIAGRAM_WORDS = re.compile(r"\b(diagram|flow ?chart|sequence|timeline|mind ?map
 @app.post("/api/skills/writing")
 async def skills_writing(request: Request):
     """Writing rules for plan mode, by output format (the skill that makes that kind of file), plus diagrams when the text asks for one."""
-    b = await request.json()
+    b = await _body(request)
     fmt, kind, text = str(b.get("format") or ""), str(b.get("kind") or ""), str(b.get("text") or "")[:4000]
     names = []
     if kind == "slides":
@@ -791,7 +808,7 @@ async def skills_file(name: str, path: str):
 
 @app.post("/api/skills")
 async def skills_create(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         skills.save_custom(str(b.get("name", "")), str(b.get("description", "")), str(b.get("body", "")), b.get("triggers") if isinstance(b.get("triggers"), list) else None)
     except SkillError as e:
@@ -801,7 +818,7 @@ async def skills_create(request: Request):
 
 @app.post("/api/skills/install")
 async def skills_install(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         names = await skills.install_github(str(b.get("repo", "")), str(b.get("path", "")), str(b.get("ref", "")), bool(b.get("overwrite")))
     except SkillError as e:
@@ -813,7 +830,7 @@ async def skills_install(request: Request):
 
 @app.post("/api/skills/{name}/enabled")
 async def skills_enable(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         skills.set_enabled(name, bool(b.get("enabled")))
     except SkillError as e:
@@ -858,7 +875,7 @@ async def chats_save(cid: str, request: Request):
 @app.post("/api/chats/{cid}/project")
 async def chats_project(cid: str, request: Request):
     try:
-        return chats.set_project(cid, str((await request.json()).get("project", "")))
+        return chats.set_project(cid, str((await _body(request)).get("project", "")))
     except chats.ChatError as e:
         raise HTTPException(404, str(e))
 
@@ -866,14 +883,14 @@ async def chats_project(cid: str, request: Request):
 @app.post("/api/projects")
 async def projects_create(request: Request):
     try:
-        return {"name": chats.create_project(str((await request.json()).get("name", "")))}
+        return {"name": chats.create_project(str((await _body(request)).get("name", "")))}
     except chats.ChatError as e:
         raise HTTPException(400, str(e))
 
 
 @app.post("/api/projects/rename")
 async def projects_rename(request: Request):
-    body = await request.json()
+    body = await _body(request)
     try:
         return {"changed": chats.rename_project(str(body.get("from", "")), str(body.get("to", "")))}
     except chats.ChatError as e:
@@ -883,7 +900,7 @@ async def projects_rename(request: Request):
 @app.post("/api/chats/{cid}/title")
 async def chats_rename(cid: str, request: Request):
     try:
-        return chats.rename(cid, str((await request.json()).get("title", "")))
+        return chats.rename(cid, str((await _body(request)).get("title", "")))
     except chats.ChatError as e:
         raise HTTPException(404, str(e))
 
@@ -914,7 +931,7 @@ async def documents_list():
 
 @app.post("/api/documents/export")
 async def documents_export(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await docs.export(str(b.get("title") or "Document"), str(b.get("markdown", "")), str(b.get("format", "pdf")))
     except docs.DocError as e:
@@ -931,7 +948,7 @@ async def documents_source(name: str):
 
 @app.put("/api/documents/{name}/source")
 async def documents_update(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await docs.update_source(name, str(b.get("source", "")), (str(b["title"]) if b.get("title") else None))
     except docs.DocError as e:
@@ -940,7 +957,7 @@ async def documents_update(name: str, request: Request):
 
 @app.post("/api/documents/{name}/edit")
 async def documents_edit(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         r = await docagent.edit_document(name, str(b.get("instruction", "")), llm_json, llm_text)
     except (docagent.AgentError, docs.DocError) as e:
@@ -952,7 +969,7 @@ async def documents_edit(name: str, request: Request):
 
 @app.post("/api/documents/{name}/verify-edit")
 async def documents_verify_edit(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await docagent.finish_edit(name, str(b.get("instruction", "")), str(b.get("before", "")), llm_json, llm_text)
     except (docagent.AgentError, docs.DocError) as e:
@@ -963,7 +980,7 @@ async def documents_verify_edit(name: str, request: Request):
 
 @app.post("/api/documents/{name}/pictures")
 async def documents_pictures(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await docagent.attach_pictures(name, [str(x) for x in (b.get("images") or [])], (str(b["section"]) if b.get("section") else None), int(b.get("count") or 0))
     except (docagent.AgentError, docs.DocError) as e:
@@ -993,7 +1010,7 @@ async def documents_tidy(name: str):
 
 @app.post("/api/documents/{name}/remove-pictures")
 async def documents_remove_pictures(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await docagent.remove_pictures(name, (str(b["section"]) if b.get("section") else None), (str(b["image"]) if b.get("image") else None), [str(x) for x in (b.get("only") or [])] or None)
     except (docagent.AgentError, docs.DocError) as e:
@@ -1002,7 +1019,7 @@ async def documents_remove_pictures(name: str, request: Request):
 
 @app.post("/api/documents/{name}/review-pictures")
 async def documents_review_pictures(name: str, request: Request):
-    b = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    b = await _body(request) if request.headers.get("content-length", "0") != "0" else {}
     try:
         r = await review_pictures(name, bool(b.get("fix", True)), [str(x) for x in (b.get("only") or [])] or None)
         return {**r, "summary": picturereview.summary(r)}
@@ -1014,7 +1031,7 @@ async def documents_review_pictures(name: str, request: Request):
 
 @app.post("/api/documents/{name}/illustrate")
 async def documents_illustrate(name: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         r = await docagent.illustrate_document(name, int(b["count"]) if b.get("count") else None, llm_json, imagegen_, str(b.get("source") or "auto"), bool(b.get("replace")), [str(x) for x in (b.get("only") or [])] or None)
     except (docagent.AgentError, docs.DocError) as e:
@@ -1067,7 +1084,7 @@ async def memory_prompt():
 
 @app.post("/api/memory")
 async def memory_add(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return memory.add(str(b.get("text", "")), source=str(b.get("source") or "user")[:12])
     except memory.MemoryError_ as e:
@@ -1077,7 +1094,7 @@ async def memory_add(request: Request):
 @app.put("/api/memory/settings")
 async def memory_settings(request: Request):
     try:
-        memory.set_enabled(bool((await request.json()).get("enabled")))
+        memory.set_enabled(bool((await _body(request)).get("enabled")))
     except memory.MemoryError_ as e:
         _bad(e)
     return memory.snapshot()
@@ -1085,7 +1102,7 @@ async def memory_settings(request: Request):
 
 @app.put("/api/memory/{mid}")
 async def memory_update(mid: str, request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return memory.update(mid, b.get("text"), b.get("pinned"))
     except memory.MemoryError_ as e:
@@ -1104,7 +1121,7 @@ async def memory_delete(mid: str):
 # ---- pictures from the web
 @app.post("/api/webimages/search")
 async def webimages_search(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return {"results": await webimages.search(str(b.get("query", "")), 12)}
     except webimages.WebImageError as e:
@@ -1122,7 +1139,7 @@ PICTURE_FOR_ANSWER = (
 @app.post("/api/webimages/for-answer")
 async def webimages_for_answer(request: Request):
     """After a chat answer that showed no picture: decide whether one would help and, if so, fetch a real one."""
-    b = await request.json()
+    b = await _body(request)
     q, a = str(b.get("question", ""))[:600], str(b.get("answer", ""))[:700]
     if len(q.split()) < 2:
         return {"images": []}
@@ -1152,7 +1169,7 @@ async def webimages_thumb(cid: str):
 
 @app.post("/api/webimages/save")
 async def webimages_save(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await webimages.save(str(b.get("id", "")))
     except webimages.WebImageError as e:
@@ -1162,7 +1179,7 @@ async def webimages_save(request: Request):
 # ---- diagrams
 @app.post("/api/diagrams/check")
 async def diagrams_check(request: Request):
-    b = await request.json()
+    b = await _body(request)
     info, err = await diagrams.render(str(b.get("code", "")))
     return {"ok": err is None, "error": err}
 
@@ -1170,7 +1187,7 @@ async def diagrams_check(request: Request):
 # ---- images (generated pictures and rendered diagrams)
 @app.post("/api/images/generate")
 async def images_generate(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return await imagegen_.generate(str(b.get("prompt", "")), str(b.get("size") or "square"), int(b.get("steps") or 8),
                                         int(b["seed"]) if str(b.get("seed", "")).lstrip("-").isdigit() else None)
@@ -1220,7 +1237,7 @@ async def schedules_list():
 
 @app.post("/api/schedules/preview")
 async def schedules_preview(request: Request):
-    b = await request.json()
+    b = await _body(request)
     try:
         return {"next": preview_schedule(b.get("schedule") or {})}
     except (ScheduleError, ValueError, KeyError, TypeError) as e:
@@ -1230,7 +1247,7 @@ async def schedules_preview(request: Request):
 @app.post("/api/schedules")
 async def schedules_create(request: Request):
     try:
-        scheduler.create(await request.json())
+        scheduler.create(await _body(request))
     except (ScheduleError, ValueError, TypeError) as e:
         _bad(e)
     return scheduler.snapshot()
@@ -1239,7 +1256,7 @@ async def schedules_create(request: Request):
 @app.put("/api/schedules/{tid}")
 async def schedules_update(tid: str, request: Request):
     try:
-        scheduler.update(tid, await request.json())
+        scheduler.update(tid, await _body(request))
     except (ScheduleError, ValueError, TypeError) as e:
         _bad(e)
     return scheduler.snapshot()
@@ -1257,7 +1274,7 @@ async def schedules_delete(tid: str):
 @app.post("/api/schedules/{tid}/enabled")
 async def schedules_enable(tid: str, request: Request):
     try:
-        scheduler.set_enabled(tid, bool((await request.json()).get("enabled")))
+        scheduler.set_enabled(tid, bool((await _body(request)).get("enabled")))
     except ScheduleError as e:
         _bad(e)
     return scheduler.snapshot()
