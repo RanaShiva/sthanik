@@ -199,6 +199,37 @@ def test_projects():
     assert chats.projects() == ["Old"]  # a chat that names a project makes it exist
 
 
+def test_packaged_linux_build_does_not_pass_its_libraries_to_the_programs_it_starts():
+    """The bootloader points LD_LIBRARY_PATH at the bundled (older) libraries; kde-open and xdg-open inherited it and failed with
+    "GLIBCXX_3.4.32 not found", so the browser never opened from the menu entry."""
+    import launcher
+
+    saved_env, saved_frozen, saved_platform = dict(os.environ), getattr(sys, "frozen", None), sys.platform
+    try:
+        sys.platform = "linux"
+        sys.frozen = True
+        os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal:/users/own/lib"
+        os.environ["LD_LIBRARY_PATH_ORIG"] = "/users/own/lib"
+        launcher._clean_child_environment()
+        assert os.environ["LD_LIBRARY_PATH"] == "/users/own/lib"  # what the user had before
+        os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
+        os.environ.pop("LD_LIBRARY_PATH_ORIG")
+        launcher._clean_child_environment()
+        assert "LD_LIBRARY_PATH" not in os.environ  # the user had none
+        sys.frozen = False  # a source checkout is left alone
+        os.environ["LD_LIBRARY_PATH"] = "/mine"
+        launcher._clean_child_environment()
+        assert os.environ["LD_LIBRARY_PATH"] == "/mine"
+    finally:
+        sys.platform = saved_platform
+        if saved_frozen is None:
+            sys.__dict__.pop("frozen", None)
+        else:
+            sys.frozen = saved_frozen
+        os.environ.clear()
+        os.environ.update(saved_env)
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):

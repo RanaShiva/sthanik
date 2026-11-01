@@ -54,6 +54,19 @@ def _wait_until_up(port: int, seconds: float = 60) -> bool:
     return False
 
 
+def _clean_child_environment():
+    """A packaged Linux build starts with LD_LIBRARY_PATH pointing at its own bundled libraries, which are older than the system's. Every
+    program started from here inherits that: the browser opener (kde-open, xdg-open) then died with "GLIBCXX_3.4.32 not found" and
+    nothing opened. This process has loaded what it needs, so give the programs it starts the value it was started with."""
+    if not getattr(sys, "frozen", False) or not sys.platform.startswith("linux"):
+        return
+    original = os.environ.get("LD_LIBRARY_PATH_ORIG")  # set by the PyInstaller bootloader when the variable existed before it
+    if original is None:
+        os.environ.pop("LD_LIBRARY_PATH", None)
+    else:
+        os.environ["LD_LIBRARY_PATH"] = original
+
+
 def _attach_streams():
     """A windowless build has no stdout/stderr, and uvicorn's logging fails on None: send them to a log file in the data folder."""
     if sys.stdout is not None and sys.stderr is not None:
@@ -166,6 +179,9 @@ def run_selftest(server_module, port: int) -> int:
             check("the calculator does not run code", r.status_code < 500 and r.json().get("ok") is False, r.text[:160])
             r = c.post("/api/tools/call", json={"name": "calculator", "arguments": {"expression": "9**9**9**9"}})
             check("the calculator does not hang on huge powers", r.status_code < 500)
+            if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
+                leaked = [p for p in os.environ.get("LD_LIBRARY_PATH", "").split(":") if p and str(getattr(sys, "_MEIPASS", "\0")) in p]
+                check("programs started from here do not inherit the bundled libraries", not leaked, str(leaked))
             r = c.post("/api/tools/call", json={"name": "use_skill", "arguments": {"name": "no-such-skill"}})
             check("an unknown skill answers with the skills that exist", "docx" in r.text and "mermaid" in r.text, r.text[:160])
     finally:
@@ -190,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.version:
         print(f"Sthanik {VERSION}")
         return 0
+    _clean_child_environment()
     if args.data_dir:
         os.environ["STHANIK_HOME"] = str(Path(args.data_dir).expanduser().resolve())
     if args.selftest and not os.environ.get("STHANIK_HOME"):
