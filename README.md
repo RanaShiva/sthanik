@@ -376,6 +376,7 @@ packaging/              PyInstaller spec, per-system packaging (Windows installe
 ## Notes
 
 - Microphone features need `localhost` (or HTTPS); the UI binds to `127.0.0.1` only.
+- Sthanik's own code is released under the MIT License (see `LICENSE`). The models it runs are separate works with their own licences.
 - LFM3 weights are under the LFM Open License v1.0; check it before commercial use. Z-Image-Turbo and Qwen3 have their own licences.
 - **Releasing:** change `app/version.py`, commit, then `git tag v2.0.1 && git push --tags`. The *Build and release* workflow builds the five packages (Linux x86-64/arm64, Windows x64, macOS arm64/x86-64), runs each one's own `--selftest`, and publishes them with `SHA256SUMS`. To move to a newer llama.cpp, run `python packaging/make_manifest.py --llama <tag>` and review the diff. Details: `packaging/README.md`.
 - Built-in per-model context sizes and flags are in `MODELS` in `app/server.py`; use *Change…* to override the context size.
