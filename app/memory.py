@@ -131,4 +131,4 @@ def prompt_block() -> str:
         lines.append(line)
         used += len(line) + 1
     return ("Things you remember about the user and their work (use them when relevant; do not mention them unless it helps). "
-            "If the user asks you to remember something, or states a lasting preference, call remember with a short sentence.\n" + "\n".join(lines))
+            "If the user asks you to remember something, call remember with a short sentence.\n" + "\n".join(lines))

@@ -768,7 +768,7 @@ class ToolHub:
         self.builtin["illustrate_document"].timeout = 60 * 60
         add("remember", "Save one short fact worth keeping across conversations: a lasting preference, a name, a project detail, a standing instruction. Use when the user asks you to remember something.",
             {"type": "object", "properties": {"fact": {"type": "string", "description": "One short sentence, e.g. 'The user prefers replies in Hindi.'"}}, "required": ["fact"]}, "memory", _remember)
-        add("recall", "Look up what is remembered about the user or a topic.",
+        add("recall", "Look up facts saved from EARLIER conversations, about the user or a topic. What was said earlier in this conversation is already in the messages above: read it there instead of calling this.",
             {"type": "object", "properties": {"query": {"type": "string", "description": "Keywords; empty lists the most recent facts."}}}, "memory", _recall)
         add("forget", "Delete a remembered fact (give some of its words).",
             {"type": "object", "properties": {"fact": {"type": "string", "description": "Words from the fact to delete."}}, "required": ["fact"]}, "memory", _forget)

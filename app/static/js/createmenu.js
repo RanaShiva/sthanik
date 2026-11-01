@@ -13,6 +13,24 @@ export const MAKE = [
 ];
 export const makeKind = (id) => MAKE.find((m) => m.id === id) || null;
 
+// A request typed in plain words ("create a Word document titled ...") is handled like choosing that kind from the menu: without it a small
+// model keeps reading the skill and never calls the tool that makes the file.
+const ASKS_TO_MAKE = /\b(create|make|write|generate|draft|build|produce|prepare|put together|export|give me)\b/i;
+const NOT_A_REQUEST = /^\s*(how|what|why|which|where|when|who|explain)\b|\b(in|using|with|via)\s+(python|javascript|typescript|java|c#|node|php|ruby|go|rust|vba)\b|\b(vba|macro|python-docx|openpyxl|python-pptx)\b/i;
+const KIND_WORDS = [
+  ['slides-pdf', /\b(slides?|presentation|deck)\b[^.?!]*\bpdf\b|\bpdf\b[^.?!]*\b(slides?|presentation|deck)\b/i],
+  ['pptx', /\b(power ?point|pptx|slide deck|slides?|presentation)\b/i],
+  ['xlsx', /\b(excel|xlsx|spreadsheet|worksheet)\b/i],
+  ['docx', /\b(word (document|doc|file)|docx)\b/i],
+  ['pdf', /\bpdf\b/i],
+  ['html', /\b(html (page|file|document)|web ?page|landing page)\b/i],
+];
+export function inferMake(text) {
+  if (!ASKS_TO_MAKE.test(text) || NOT_A_REQUEST.test(text)) return null;
+  const hit = KIND_WORDS.find(([, re]) => re.test(text));
+  return hit ? makeKind(hit[0]) : null;
+}
+
 const skillBodies = new Map();
 // The instruction for a turn that should end in a file: which tool to call and the skill's own guidance.
 export async function makeInstruction(kind) {

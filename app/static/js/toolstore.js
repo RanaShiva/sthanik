@@ -43,7 +43,7 @@ export const toolstore = {
   group(id) { return this.groups.find((g) => g.id === id); },
   groupOf(toolName) { return this.groups.find((g) => g.tools.some((t) => t.name === toolName)); },
   usable(g) { return g && (g.status === 'ready' || g.status === 'connected'); },
-  isGroupOn(id) { return ((id === 'skills' || (this.prefs.enabledGroups[id] ?? id === 'memory')) || this.forced.has(id)) && this.usable(this.group(id)); }, // skills are always on: they only apply when a request matches // memory is on unless switched off
+  isGroupOn(id) { return ((id === 'skills' || (this.prefs.enabledGroups[id] ?? (id === 'memory' || id === 'utility'))) || this.forced.has(id)) && this.usable(this.group(id)); }, // skills are always on: they only apply when a request matches // memory, and the offline calculator and clock, are on unless switched off
   force(ids) { this.forced = new Set(ids); },
   hide(names) { this.hidden = new Set(names); },
   setGroupOn(id, on) { this.prefs.enabledGroups[id] = on; this._save(); },
