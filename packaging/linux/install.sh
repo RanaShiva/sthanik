@@ -83,6 +83,27 @@ fi
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 [ -x "$here/sthanik/sthanik" ] || { echo "Run this from the folder you extracted (it must contain the 'sthanik' folder)." >&2; exit 1; }
 
+# A running Sthanik loads parts of itself from its program folder when it first needs them. Replacing the folder underneath it breaks it
+# (an export then fails with "unknown compression method"), so a running copy is closed first, and nothing is touched if it will not close.
+running_pids() {
+  local p exe
+  for p in /proc/[0-9]*; do
+    exe="$(readlink "$p/exe" 2>/dev/null || true)"
+    [ "${exe% (deleted)}" = "$opt/sthanik" ] && echo "${p#/proc/}"
+  done
+  return 0
+}
+pids="$(running_pids)"
+if [ -n "$pids" ]; then
+  echo "Sthanik is running: closing it before the update (your chats are saved)..."
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  for _ in $(seq 1 30); do [ -z "$(running_pids)" ] && break; sleep 0.5; done
+  if [ -n "$(running_pids)" ]; then
+    echo "Sthanik did not close. Quit it yourself (its Quit button), then run ./install.sh again. Nothing was changed." >&2; exit 1
+  fi
+fi
+
 mkdir -p "$bin" "$apps" "$icons/scalable/apps"
 rm -rf "$opt"; mkdir -p "$opt"
 cp -a "$here/sthanik/." "$opt/"

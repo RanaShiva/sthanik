@@ -37,6 +37,7 @@ import images
 import memory
 import paths
 import picturereview
+import problems
 import private
 import registry
 import safebrowsing
@@ -456,6 +457,12 @@ def _inline_script_hashes() -> str:
 UI_CSP = ("default-src 'none'; script-src 'self' {hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; "
           "media-src 'self' blob: data:; connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}; frame-src 'none'; "
           "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    """An error nobody planned for: the page gets a sentence it can show (the traceback still goes to the log)."""
+    return JSONResponse({"detail": problems.explain(exc)}, status_code=500)
 
 
 @app.middleware("http")

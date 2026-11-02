@@ -39,17 +39,25 @@ def test_python_titles():
         assert doclint.clean_title(given) == want, (given, doclint.clean_title(given))
 
 
+DIAGRAM_ONLY = ["Generate a deatiled mermaid diagram for a tiny url system design. Be detailed.", "Draw a sequence diagram of the login flow", "Make a flowchart for ordering coffee",
+                "Create an ER diagram for a library database", "give me a mermaid state machine for a traffic light"]
+MORE = ["Create a PDF report with diagrams of the architecture", "Make a presentation with a flowchart on onboarding", "Write a report on tiny url design including a diagram",
+        "Create a document about system design with a mermaid diagram", "Build a spreadsheet and a diagram of our costs", "Write a guide to drawing flowcharts", "Explain how a URL shortener works"]
+
+
 def test_javascript_titles_and_addresses_match():
     code = """
-import { cleanTitle, urlsIn } from %s;
+import { cleanTitle, urlsIn, asksForDiagramOnly } from %s;
 const i = JSON.parse(process.argv[1]);
-console.log(JSON.stringify({ titles: i.titles.map(cleanTitle), urls: urlsIn(i.text) }));
+console.log(JSON.stringify({ titles: i.titles.map(cleanTitle), urls: urlsIn(i.text), only: i.only.map(asksForDiagramOnly), more: i.more.map(asksForDiagramOnly) }));
 """ % json.dumps("file://" + os.path.abspath(os.path.join(HERE, "..", "app", "static", "js", "doctext.js")))
-    out = subprocess.run(["node", "--input-type=module", "-e", code, json.dumps({"titles": list(TITLES), "text": TEXT})], capture_output=True, text=True, timeout=60)
+    out = subprocess.run(["node", "--input-type=module", "-e", code, json.dumps({"titles": list(TITLES), "text": TEXT, "only": DIAGRAM_ONLY, "more": MORE})], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr[-500:]
     got = json.loads(out.stdout)
     assert got["titles"] == list(TITLES.values()), [(a, b) for a, b in zip(TITLES, got["titles"]) if TITLES[a] != b]
     assert got["urls"] == URLS, got["urls"]
+    assert all(got["only"]), [t for t, ok in zip(DIAGRAM_ONLY, got["only"]) if not ok]
+    assert not any(got["more"]), [t for t, ok in zip(MORE, got["more"]) if ok]
 
 
 if __name__ == "__main__":

@@ -33,3 +33,13 @@ export function urlsIn(text) {
   }
   return out;
 }
+
+// "Generate a detailed mermaid diagram for a tiny url system": one diagram, which the chat draws itself. Complex mode would turn it into a deck or a
+// report with a dozen searches. A request that also names a file or a longer piece of writing ("a report with a diagram") is still a plan.
+const DIAGRAM = /\b(mermaid|flow ?chart|diagram|er ?d\b|state machine)\b/i;
+const MORE_THAN_A_DIAGRAM = /\b(slides?|presentation|deck|power ?point|pptx?|report|documents?|pdf|docx?|word file|essay|guide|e-?book|proposal|white ?paper|article|manual|brief|plan|summary|study|tutorial|spreadsheet|excel|xlsx)\b/i;
+
+export function asksForDiagramOnly(text) {
+  const t = String(text || '');
+  return DIAGRAM.test(t) && !MORE_THAN_A_DIAGRAM.test(t);
+}

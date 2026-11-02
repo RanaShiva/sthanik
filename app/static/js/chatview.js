@@ -21,6 +21,7 @@ import { toolstore } from './toolstore.js';
 import { isPrivate, privateWhere } from './safebrowsing.js';
 import { createMenu, makeInstruction, inferMake } from './createmenu.js';
 import { needsLookup, lookupQuery } from './lookup.js';
+import { asksForDiagramOnly } from './doctext.js';
 import { clarify, looksLikeTask, needsCheck } from './clarify.js';
 import { createModeMenu } from './modemenu.js';
 import { Mic, fileToWav, encodeWav, resample, blobToB64, drawLevels } from './audio.js';
@@ -826,8 +827,8 @@ export function createChat(opts) {
       // a file kind chosen in the Create menu decides what the to-do list produces
       const kind = menu.kind; menu.setKind(null);
       return sendPlan(text, `${text}\n\n(The user wants this as ${kind.plan}.)`);
-    } else if (complex && !aboutExisting && !menu?.kind && (looksLikeTask(text) || text.trim().length >= 40)) {
-      return sendPlan(text); // greetings and one-liners below that size are answered at once
+    } else if (complex && !aboutExisting && !menu?.kind && !asksForDiagramOnly(text) && (looksLikeTask(text) || text.trim().length >= 40)) {
+      return sendPlan(text); // greetings and one-liners below that size are answered at once; so is a request for just a diagram, which the chat draws itself
     }
     const histBefore = history.length;
     const itemsBefore = items.length;

@@ -67,6 +67,35 @@ def _clean_child_environment():
         os.environ["LD_LIBRARY_PATH"] = original
 
 
+# Libraries the program loads only when a feature first needs them. A packaged build reads them from its own archive on disk, so a copy that is
+# still running after an update would read the new file at the old file's positions and fail ("unknown compression method"). Loaded at start,
+# they are in memory and the update cannot touch them.
+_ON_DEMAND = (
+    "docaudit", "docagent", "webimages", "picturereview", "imagegen", "mathtext", "doclint", "evidence", "readers", "bringin",
+    "PIL.Image", "PIL.ImageChops", "docx", "docx.enum.text", "docx.shared", "pptx", "pptx.dml.color", "pptx.enum.shapes", "pptx.enum.text", "pptx.util",
+    "openpyxl", "openpyxl.styles", "openpyxl.utils", "xlsxwriter", "psutil", "yaml", "bs4", "lxml.etree", "markdown_it",
+    "ddgs", "ddgs.engines.bing", "ddgs.engines.bing_images", "ddgs.engines.bing_news", "ddgs.engines.yahoo", "mcp", "mcp.client.client", "zoneinfo",
+)
+
+
+def _preload(sync: bool = False, force: bool = False) -> None:
+    if not (force or getattr(sys, "frozen", False)):
+        return
+
+    def load():
+        import importlib
+        for name in _ON_DEMAND:
+            try:
+                importlib.import_module(name)
+            except Exception:  # noqa: BLE001 - a library this build lacks is no reason to stop the others
+                pass
+
+    if sync:
+        load()
+    else:
+        threading.Thread(target=load, daemon=True, name="preload").start()
+
+
 def _attach_streams():
     """A windowless build has no stdout/stderr, and uvicorn's logging fails on None: send them to a log file in the data folder."""
     if sys.stdout is not None and sys.stderr is not None:
@@ -202,6 +231,12 @@ def run_selftest(server_module, port: int) -> int:
                 check("programs started from here do not inherit the bundled libraries", not leaked, str(leaked))
             r = c.post("/api/tools/call", json={"name": "use_skill", "arguments": {"name": "no-such-skill"}})
             check("an unknown skill answers with the skills that exist", "docx" in r.text and "mermaid" in r.text, r.text[:160])
+            if getattr(sys, "frozen", False):
+                need = ("pptx", "docx", "openpyxl", "PIL.Image", "docaudit", "ddgs.engines.bing")
+                end = time.time() + 40
+                while time.time() < end and not all(m in sys.modules for m in need):
+                    time.sleep(0.5)
+                check("the libraries that load on demand are already loaded, so an update cannot break them", all(m in sys.modules for m in need), str([m for m in need if m not in sys.modules]))
     finally:
         server.should_exit = True
         thread.join(15)
@@ -227,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Sthanik {VERSION}")
         return 0
     _clean_child_environment()
+    _preload()
     if args.data_dir:
         os.environ["STHANIK_HOME"] = str(Path(args.data_dir).expanduser().resolve())
     if args.selftest and not os.environ.get("STHANIK_HOME"):

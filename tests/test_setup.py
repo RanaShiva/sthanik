@@ -230,6 +230,69 @@ def test_packaged_linux_build_does_not_pass_its_libraries_to_the_programs_it_sta
         os.environ.update(saved_env)
 
 
+def test_an_unplanned_failure_tells_the_person_what_to_do():
+    import errno
+    import zlib
+
+    import problems
+
+    assert problems.explain(zlib.error("Error -3 while decompressing data: unknown compression method")) == problems.CHANGED
+    try:
+        try:
+            raise zlib.error("unknown compression method")
+        except zlib.error as inner:
+            raise RuntimeError("could not build the file") from inner
+    except RuntimeError as outer:
+        assert problems.explain(outer) == problems.CHANGED, "the cause is looked for behind the error that was raised"
+    assert problems.explain(ModuleNotFoundError("No module named 'pptx'")) == problems.CHANGED
+    assert "disk is full" in problems.explain(OSError(errno.ENOSPC, "No space left on device"))
+    assert "not allowed" in problems.explain(PermissionError(13, "denied"))
+    other = problems.explain(KeyError("x"))
+    assert "KeyError" in other and "open it again" in other and "/" not in other, other
+
+
+def test_the_page_gets_a_sentence_not_a_bare_500_when_the_export_crashes_the_way_it_did_after_an_update():
+    import zlib
+
+    from fastapi.testclient import TestClient
+
+    import documents
+    import problems
+    import server
+
+    async def boom(*a, **k):
+        raise zlib.error("Error -3 while decompressing data: unknown compression method")
+
+    saved = documents.export
+    documents.export = boom
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1:7860", raise_server_exceptions=False)
+        r = c.post("/api/documents/export", json={"title": "t", "markdown": "# t", "format": "pptx"})
+        assert r.status_code == 500 and r.json()["detail"] == problems.CHANGED, (r.status_code, r.text[:200])
+    finally:
+        documents.export = saved
+
+
+def test_the_libraries_that_load_on_demand_can_be_loaded_at_start():
+    import launcher
+
+    launcher._preload(sync=True, force=True)
+    for m in ("pptx", "docx", "openpyxl", "PIL.Image", "docaudit", "mathtext", "ddgs.engines.bing"):
+        assert m in sys.modules, m
+    saved = getattr(sys, "frozen", None)
+    sys.frozen = False
+    try:
+        import threading
+        before = threading.active_count()
+        launcher._preload()  # a source checkout does not preload: nothing starts
+        assert threading.active_count() == before
+    finally:
+        if saved is None:
+            sys.__dict__.pop("frozen", None)
+        else:
+            sys.frozen = saved
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
