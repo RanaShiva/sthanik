@@ -10,6 +10,7 @@ import { h, icon, toast, markdown } from './ui.js';
 import { patchInto } from './markdown.js';
 import { ensureModel, ensureLoaded, streamChat, onStatus } from './api.js';
 import { countRequirements } from './workspace.js';
+import { cleanTitle, urlsIn } from './doctext.js';
 
 export const MAX_STEPS = 14;
 const KINDS = { document: 'Document', slides: 'Slides', answer: 'Answer in chat' };
@@ -43,9 +44,11 @@ Choose "kind":
 - "answer": everything else (research, analysis, comparison, explanation, advice). Each step is one sub-task. The LAST step writes the final answer for the user from the earlier results.
 For "document" and "slides" every step WRITES a visible part of the finished file. Never make a step that outlines, plans the structure, researches, reviews, proofreads, compiles or "generates all the content": the plan itself is the outline.
 Each step has: "title" (3-8 words), "instruction" (one or two sentences saying exactly what to cover), and "words" (target length; 40 for a slide). If the user states a number of sections, slides or steps, produce EXACTLY that many steps.
+The top-level "title" is what the finished file is called, about its subject (for example "Machine Learning, Deep Learning and LLMs: A Study Guide"). Never "outline", "plan" or "document", never the word PDF, never the request's own words ("create a ...").
 Return only JSON.`;
 
-const DOC_SYSTEM = `You are writing ONE section of a longer document, in Markdown. Write clear, specific, well-organised text. Do not repeat what earlier sections already say, and do not add an introduction or conclusion unless this section is that. No preamble such as "Here is the section". Write the finished text the reader will see: never an outline, a plan, notes about the document, an apology or an offer to write it later.
+const DOC_SYSTEM = `You are writing ONE section of a longer document, in Markdown. Write clear, specific, well-organised text. Do not repeat what earlier sections already say, and do not add an introduction or conclusion unless this section is that. No preamble such as "Here is the section". Write the finished text the reader will see: never an outline, a plan, notes about the document, an apology or an offer to write it later. Never mention the file, PDF, Markdown, these instructions or how the text was produced.
+Write every formula completely in LaTeX between dollar signs: $x^2$ inside a sentence, $$ ... $$ on its own lines for an equation. Never write a formula as plain brackets such as [ ... ].
 Start with the heading line given to you. Use short paragraphs, and bullet lists or a table where they help. Only if the instructions ask for a diagram or flowchart, include ONE fenced \`\`\`mermaid block (flowchart TD, short labels in brackets, label text in double quotes if it has punctuation).
 After the section, add a last line "SUMMARY: " followed by one sentence (at most 30 words) saying what this section established.`;
 
@@ -68,7 +71,7 @@ const GROUP_SLIDE_SYSTEM = `You are writing several slides of a presentation, in
 - short point
 Notes: one or two sentences to say out loud
 Use 3-5 bullets per slide. Fragments, not sentences. Write EVERY slide you are given, in the order given, each starting with "## " and the title you were given. Follow the request's wishes for style (analogies, diagrams and so on) where they fit the slide; a diagram is ONE fenced \`\`\`mermaid block (flowchart TD, short labels in double quotes) in place of the bullets, and only on a slide that is really about a process or a structure (at most one slide in four). Write finished slides only: no preamble, no outline, no apology, no closing remarks, no SUMMARY line.`;
-const GROUP_DOC_SYSTEM = `You are writing several sections of a longer document, in Markdown. Write EVERY section you are given, in the order given, each starting with "## " and the title you were given. Write clear, specific text in short paragraphs, with a list or table where it helps, and follow the request's wishes for style where they fit. Do not repeat what other sections say. Write finished sections only: no preamble, no outline, no apology, no closing remarks, no SUMMARY line.`;
+const GROUP_DOC_SYSTEM = `You are writing several sections of a longer document, in Markdown. Write EVERY section you are given, in the order given, each starting with "## " and the title you were given. Write clear, specific text in short paragraphs, with a list or table where it helps, and follow the request's wishes for style where they fit. Do not repeat what other sections say. Write finished sections only: no preamble, no outline, no apology, no closing remarks, no SUMMARY line. Never mention the file, PDF, Markdown or these instructions. Write formulas completely in LaTeX between dollar signs ($x^2$ in a sentence, $$ ... $$ for an equation).`;
 
 // A step that only talks about the work (outline, plan, research…) would put a plan into the file instead of content.
 const META_STEP = /^\s*(?:(?:create|make|write|draft|generate|prepare|develop|design|build|finali[sz]e|compile|assemble|export|format|proofread|review|research|gather|plan)\b.*\b(?:outline|structure|slides?|deck|document|file|presentation|draft|everything)\b|outline\b|(?:structure|planning|proofreading|finali[sz]ation|compilation|assembly)\b)/i;
@@ -287,7 +290,7 @@ export function createPlanner(host) {
   function build(goal, p, kind, steps, notice = '') {
     const pics = kind === 'answer' ? 0 : countRequirements(goal).filter((r) => r.unit === 'images').reduce((n, r) => Math.max(n, r.n), 0);
     return {
-      v: 1, goal, title: String(p.title || 'Untitled').trim().slice(0, 120), kind, format: guessFormat(goal, kind), state: 'review', pictures: Math.min(pics, 30), notice, file: null, error: '',
+      v: 1, goal, title: cleanTitle(String(p.title || 'Untitled').trim()).slice(0, 120), kind, format: guessFormat(goal, kind), state: 'review', pictures: Math.min(pics, 30), notice, file: null, error: '',
       steps: steps.map((s) => ({
         title: String(s.title).replace(/^\s*(slide|section|step)\s*\d+\s*[:.\-–—)]\s*/i, '').trim().slice(0, 120), instruction: String(s.instruction || '').trim().slice(0, s.group ? 6000 : 600), words: clamp(+s.words || 250, 30, 800),
         ...(s.group ? { group: true } : {}), status: 'pending', output: '', summary: '', error: '',
@@ -421,7 +424,7 @@ export function createPlanner(host) {
     let best = null;
     for (const out of outs) {
       for (const block of out.split(/\n(?=\[\d+\])/)) {
-        const url = (block.match(/https?:\/\/[^\s)\]]+/) || [])[0];
+        const url = urlsIn(block)[0];
         if (!url || fetched.includes(url) || SKIP_PAGE.test(url)) continue;
         const lower = block.toLowerCase();
         const score = words.reduce((n, w) => n + (lower.includes(w) ? 1 : 0), 0) + (/wikipedia\.org|britannica\.com|\.gov|olympics\.com|reuters\.com|bbc\./i.test(url) ? 1.5 : 0);
@@ -468,7 +471,7 @@ export function createPlanner(host) {
         if (!out || /^(Error:|No results)/.test(out)) continue;
         // Results that never mention the subject (a general paper on "sentiment analysis" for a question about one film) are noise, not sources.
         if (key.length && !key.some((k) => out.toLowerCase().includes(k))) continue;
-        for (const u of out.match(/https?:\/\/[^\s)\]]+/g) || []) urls.includes(u) || urls.push(u);
+        for (const u of urlsIn(out)) urls.includes(u) || urls.push(u);
         outs.push(out);
         parts.push(`Search "${query}":\n${out.slice(0, 1700)}`);
       }
@@ -501,7 +504,7 @@ export function createPlanner(host) {
     }
     step.phase = '';
     step.researched = parts.length ? `Searched ${searches} time${searches === 1 ? '' : 's'}${verdict && !verdict.enough && verdict.missing ? `; still thin on: ${verdict.missing.slice(0, 90)}` : ''}` : '';
-    for (const u of urls) (plan.sources ||= []).includes(u) || plan.sources.push(u);
+    for (const u of (fetched.length ? fetched : urls.slice(0, 3))) (plan.sources ||= []).includes(u) || plan.sources.push(u); // the pages that were read, not every result that came back
     return [...parts.filter((x) => x.startsWith('Page ')), ...parts.filter((x) => !x.startsWith('Page '))].join('\n\n').slice(0, NOTES_CAP); // full pages first: they hold the figures
   }
 

@@ -41,6 +41,10 @@ jobs:
         run: python -I tests/test_search.py
       - name: Which questions get a web lookup (needs node, which the runner has)
         run: python -I tests/test_lookup.py
+      - name: Formulas in files, leftovers in model text (the PDF check uses the runner's Chrome)
+        run: python -I tests/test_math_and_lint.py
+      - name: Title and address rules, the same in Python and in the page
+        run: python -I tests/test_doctext.py
       - name: Page source guards
         run: python -I tests/test_ui_source.py
       - name: Self-test (server starts, pages load, documents are made, hardware is read)

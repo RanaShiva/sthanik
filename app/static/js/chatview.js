@@ -58,7 +58,7 @@ const ANSWER_NOW = 'Write your answer to the user now, in plain language, direct
 const PLAN_NEVER_USES = new Set([...MUTATING, 'remember', 'recall', 'forget']);
 const READ_ONLY_REPEATS = new Set(['web_search', 'news_search', 'fetch_url', 'use_skill', 'read_skill_file']);
 const ASKS_TO_REMEMBER = /\b(remember|keep in mind|don'?t forget|note (down )?that|from now on|save (this|that|it)|memori[sz]e)\b/i;
-const SAYS_CANNOT_LOOK_UP = /\b(don'?t|do not|can'?t|cannot|unable|not able|no access)\b[^.!?]*\b(current|latest|up[- ]to[- ]date|real[- ]time|live|look(ing)? (it |that |this )?up|browse|search|internet|online)\b/i;
+const SAYS_CANNOT_LOOK_UP = /\b(don['’]?t|do not|can['’]?t|cannot|unable|not able|no access)\b[^.!?]*\b(current|latest|up[-\u2010-\u2015 ]to[-\u2010-\u2015 ]date|real[-\u2010-\u2015 ]time|live|look(ing)? (it |that |this )?up|browse|search|internet|online)\b/i;
 // The memory tools are offered only when the message is about memory. Offered always, a small model read "What did the speaker say?" about an
 // attached recording as a memory lookup, called recall, found nothing and answered "I don't have that in my memory".
 const ABOUT_MEMORY = /\b(recall|memory|memories|last time|previous(ly)?|earlier (chat|conversation|session|time)|(did|do|have) (i|you) (tell|told|say|said|mention|know)|i (told|said|mentioned)|what do you know about me|about me|my (name|favou?rite|preferences?|birthday|job|work|projects?|goals?|address|family))\b/i;

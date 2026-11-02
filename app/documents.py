@@ -25,7 +25,9 @@ from markdown_it import MarkdownIt
 
 import chrome
 import diagrams
+import doclint
 import images
+import mathtext
 
 ROOT = paths.HOME  # user data, models and binaries; see paths.py
 DOCS_DIR = Path(os.environ.get("LFM3_DOCS_DIR") or ROOT / "data" / "documents")
@@ -134,7 +136,7 @@ def _clean_markdown(text: str, unknown: list | None = None) -> str:
     if "\n" not in text and "\\n" in text:  # model double-escaped newlines inside the tool call
         text = text.replace("\\n", "\n")
     text, _ = close_unclosed_fence(text)
-    return text
+    return mathtext.normalize(text)  # invented math delimiters become $...$, so every format and the chat screen can show the formula
 
 
 def _slug(title: str) -> str:
@@ -208,7 +210,7 @@ async def _prepare(text: str, strict: bool = True, warnings: list | None = None)
     return "".join(out)
 
 
-CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:">'
+CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
 
 DOC_CSS = """
 @page { size: A4; margin: 22mm 20mm 24mm; @bottom-center { content: counter(page) " / " counter(pages); font: 9pt "Noto Sans", "DejaVu Sans", sans-serif; color: #7b8d83; } }
@@ -231,13 +233,27 @@ hr { border: 0; border-top: 1px solid #d3e0d8; margin: 1.4em 0; } a { color: #14
 .fig .cap { display: block; margin-top: .4em; font-size: 9.5pt; color: #5b6b62; font-style: italic; }
 """
 
+# Typeset formulas: a display formula gets room and never overflows the page; one KaTeX cannot read shows as readable text
+MATH_CSS = """
+.katex { font-size: 1.04em; } .katex-display { margin: .9em 0 1em; overflow-x: auto; overflow-y: hidden; page-break-inside: avoid; }
+.katex-display > .katex { white-space: normal; } .mathfb { font-family: "Noto Sans", "DejaVu Sans", sans-serif; font-style: italic; } div.mathfb { margin: .8em 0 1em 1.5em; }
+"""
 
-def _doc_html(title: str, text: str) -> str:
-    body = _md.render(text)
+
+async def _typeset(text: str) -> list:
+    """KaTeX HTML for each formula in the text (empty without any, or without a browser: each then falls back to readable Unicode)."""
+    items = mathtext.extract(text)[1]
+    return await mathtext.render(items) if items else []
+
+
+def _doc_html(title: str, text: str, rendered: list | None = None) -> str:
+    marked, items = mathtext.extract(text)
+    body = mathtext.typeset(_md.render(marked), items, rendered or [])
     has_h1 = re.search(r"^#\s", text, re.M) is not None
     head = "" if has_h1 else f"<h1>{htmllib.escape(title)}</h1>"
+    math_css = mathtext.css(body) + MATH_CSS if items else ""
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">{CSP}<title>{htmllib.escape(title)}</title>'
-            f"<style>{look.css(DOC_CSS)}</style></head><body>{head}{body}</body></html>")
+            f"<style>{look.css(DOC_CSS)}{math_css}</style></head><body>{head}{body}</body></html>")
 
 
 # ------------------------------------------------------------------ DOCX
@@ -717,11 +733,13 @@ async def _build(kind: str, title: str, text: str, fmt: str, strict: bool = True
         return await asyncio.to_thread(_xlsx, title, text), text
     if kind == "slides":
         text, prepared = await _slides_source(title, text, strict, warnings)
+        prepared = mathtext.to_plain(prepared)  # a slide holds bullets, not typeset formulas: they read as Unicode
         return (await asyncio.to_thread(_pptx, title, prepared) if fmt == "pptx" else await _html_to_pdf(_slides_html(title, prepared))), text
     prepared = await _prepare(text, strict, warnings) if fmt in ("pdf", "docx", "html") else text
-    if fmt == "pdf": return await _html_to_pdf(_doc_html(title, prepared)), text
-    if fmt == "docx": return await asyncio.to_thread(_docx, title, prepared), text
-    if fmt == "html": return _doc_html(title, prepared).encode(), text
+    if fmt == "pdf": return await _html_to_pdf(_doc_html(title, prepared, await _typeset(prepared))), text
+    if fmt == "docx": return await asyncio.to_thread(_docx, title, mathtext.to_plain(prepared)), text
+    if fmt == "html": return _doc_html(title, prepared, await _typeset(prepared)).encode(), text
+    if fmt == "txt": return (mathtext.to_plain(text) + "\n").encode(), text
     return (text + "\n").encode(), text
 
 
@@ -738,12 +756,16 @@ async def create_document(title: str, content: str, fmt: str = "pdf", strict: bo
     fmt = (fmt or "pdf").lower().lstrip(".")
     if fmt not in DOC_FORMATS:
         raise DocError(f"Unsupported format '{fmt}'. Choose one of: {', '.join(DOC_FORMATS)}.")
-    title = (title or "Document").strip()[:120]
+    given = (title or "Document").strip()[:120]
+    title = doclint.clean_title(given)  # "Document Outline for PDF on X" names the job, not the subject
     unknown: list[str] = []
     text = _clean_markdown(content, unknown)
+    if title != given and text.startswith(f"# {given}"):
+        text = f"# {title}" + text[len(f"# {given}"):]
     if not text:
         raise DocError("The content is empty.")
     _check_pictures(unknown, strict)
+    text = doclint.tidy(text, topic=title)  # instructions the model echoed into the text, empty headings, bare source addresses
     return await _create("document", title, text, fmt, strict)
 
 
